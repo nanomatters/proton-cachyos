@@ -1006,6 +1006,7 @@ WINE_AUTOCONF_ARGS += \
   --with-wayland \
   --with-gstreamer \
   --with-ffmpeg \
+  --with-libpcap \
   --without-oss \
 
 WINE_x86_64_AUTOCONF_ARGS = \
