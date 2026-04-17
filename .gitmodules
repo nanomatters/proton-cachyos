@@ -75,3 +75,6 @@
 [submodule "libsoup"]
 	path = libsoup
 	url = https://github.com/GNOME/libsoup.git
+[submodule "extras/dxvk-sarek"]
+	path = extras/dxvk-sarek
+	url = https://github.com/pythonlover02/DXVK-Sarek.git
