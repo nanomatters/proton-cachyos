@@ -138,3 +138,6 @@
 [submodule "extras/dxvk-llasync"]
 	path = extras/dxvk-llasync
 	url = https://github.com/netborg-afps/dxvk-low-latency.git
+[submodule "extras/vkd3d-bratan"]
+	path = extras/vkd3d-bratan
+	url = https://github.com/HansKristian-Work/vkd3d-proton.git
