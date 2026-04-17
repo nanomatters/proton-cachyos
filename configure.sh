@@ -191,6 +191,10 @@ function configure() {
       echo "WITHOUT_TTS := 1"
     fi
 
+    echo "HOST_CFLAGS := ${CFLAGS:--O2 -march=nocona -mtune=core-avx2}"
+    echo "HOST_RUSTFLAGS := ${RUSTFLAGS:--Copt-level=3 -Ctarget-cpu=nocona}"
+    echo "USE_LTO := ${USE_LTO:-0}"
+
     # Include base
     echo ""
     echo "include \$(SRCDIR)/Makefile.in"
