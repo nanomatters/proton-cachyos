@@ -1228,6 +1228,13 @@ $(OBJ)/.vkd3d-proton-post-source:
 
 
 ##
+## extras
+##
+
+include $(SRC)/extras/build-dxvk-sarek.mk
+
+
+##
 ## FEX
 ##
 
