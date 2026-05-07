@@ -138,3 +138,6 @@
 [submodule "extras/dxvk-llasync"]
 	path = extras/dxvk-llasync
 	url = https://github.com/netborg-afps/dxvk-low-latency.git
+[submodule "vklayers/pyroveil"]
+	path = vklayers/pyroveil
+	url = https://github.com/HansKristian-Work/pyroveil.git
