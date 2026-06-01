@@ -1279,6 +1279,7 @@ include $(SRC)/vklayers/build-dxvk-nvapi-vkreflex-layer.mk
 include $(SRC)/vklayers/build-pyroveil.mk
 include $(SRC)/vklayers/build-vulkan-utility-libraries.mk
 include $(SRC)/vklayers/build-low_latency_layer.mk
+include $(SRC)/vklayers/build-vkbasalt.mk
 
 
 ##
