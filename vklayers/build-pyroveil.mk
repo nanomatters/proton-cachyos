@@ -2,6 +2,8 @@
 ## pyroveil
 ##
 
+ifeq ($(findstring pyroveil,$(WITHOUT_VKLAYERS)),)
+
 PYROVEIL_CMAKE_ARGS = \
   -DCMAKE_BUILD_TYPE=release
 
@@ -28,3 +30,5 @@ $(OBJ)/.pyroveil-aarch64-post-build:
 	touch $@
 
 all-dist: pyroveil
+
+endif # WITHOUT_VKLAYERS

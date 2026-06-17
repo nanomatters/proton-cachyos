@@ -2,7 +2,7 @@
 ## dxvk-llasync
 ##
 
-ifneq ($(WITHOUT_LLASYNC),1)
+ifeq ($(findstring dxvk-llasync,$(WITHOUT_EXTRAS)),)
 
 # wine builds DLLs with the same names, we need to differentiate the timestamps
 DXVK_LLASYNC_i386_SOURCE_DATE_EPOCH := $(shell expr $(i386_SOURCE_DATE_EPOCH) - 1)
@@ -39,4 +39,4 @@ $(OBJ)/.dxvk-llasync-post-source: patches-source
 
 default_pfx: dxvk-llasync
 
-endif # WITHOUT_LLASYNC
+endif # WITHOUT_EXTRAS
