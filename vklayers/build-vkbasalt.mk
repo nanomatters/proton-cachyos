@@ -2,6 +2,8 @@
 ## vkbasalt
 ##
 
+ifeq ($(findstring vkbasalt,$(WITHOUT_VKLAYERS)),)
+
 VKBASALT_MESON_ARGS = \
   -Dwith_so=true \
   -Dwith_json=true \
@@ -29,3 +31,5 @@ $(OBJ)/.vkbasalt-aarch64-post-build:
 	touch $@
 
 all-dist: vkbasalt
+
+endif # WITHOUT_VKLAYERS
