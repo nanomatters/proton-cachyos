@@ -2,7 +2,7 @@
 ## dxvk-nvapi-vkreflex-layer
 ##
 
-ifneq ($(WITHOUT_VKREFLEX),1)
+ifeq ($(findstring dxvk-nvapi-vkreflex-layer,$(WITHOUT_VKLAYERS)),)
 
 DXVK_NVAPI_VKREFLEX_LAYER_SOURCE_ARGS = \
   --exclude version.h.in \
@@ -38,4 +38,4 @@ $(OBJ)/.dxvk-nvapi-vkreflex-layer-aarch64-post-build:
 
 all-dist: dxvk-nvapi-vkreflex-layer
 
-endif # WITHOUT_VKREFLEX
+endif # WITHOUT_VKLAYERS

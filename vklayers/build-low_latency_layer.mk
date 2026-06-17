@@ -2,6 +2,10 @@
 ## low_latency_layer
 ##
 
+ifeq ($(findstring low_latency_layer,$(WITHOUT_VKLAYERS)),)
+
+include $(SRC)/vklayers/build-vulkan-utility-libraries.mk
+
 LOW_LATENCY_LAYER_CMAKE_ARGS = \
   -DCMAKE_BUILD_TYPE=release
 
@@ -26,3 +30,5 @@ $(OBJ)/.low_latency_layer-aarch64-post-build:
 	touch $@
 
 all-dist: low_latency_layer
+
+endif # WITHOUT_VKLAYERS
