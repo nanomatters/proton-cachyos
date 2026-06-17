@@ -2,6 +2,8 @@
 ## discord-rpc-bridge
 ##
 
+ifeq ($(findstring discord-rpc-bridge,$(WITHOUT_EXTRAS)),)
+
 $(eval $(call rules-source,discord-rpc-bridge,$(SRCDIR)/extras/discord-rpc-bridge))
 $(eval $(call create-rules-common,discord-rpc-bridge,DISCORD_RPC_BRIDGE,x86_64,unix))
 $(eval $(call create-rules-common,discord-rpc-bridge,DISCORD_RPC_BRIDGE,aarch64,unix))
@@ -37,3 +39,5 @@ $(OBJ)/.discord-rpc-bridge-aarch64-dist:
 	touch $@
 
 default_pfx: discord-rpc-bridge
+
+endif # WITHOUT_EXTRAS
