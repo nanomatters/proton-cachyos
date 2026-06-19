@@ -143,8 +143,12 @@ function configure() {
     CONTAINER_MOUNT_OPTS=:Z
   fi
 
-  if [[ -n "$arg_container_engine" ]]; then
+  if [[ -n "${arg_native:-}" ]]; then
+    stat "Native build: using the host toolchain, no container engine."
+    ROOTLESS_CONTAINER=0
+  elif [[ -n "$arg_container_engine" ]]; then
     check_container_engine "$arg_container_engine" "$steamrt_image" || die "Specified container engine \"$arg_container_engine\" doesn't work"
+    stat "Using $arg_container_engine."
   else
     stat "Trying to find usable container engine."
     if check_container_engine docker "$steamrt_image"; then
@@ -154,9 +158,8 @@ function configure() {
     else
         die "${arg_container_engine:-Container engine discovery} has failed. Please fix your setup."
     fi
+    stat "Using $arg_container_engine."
   fi
-
-  stat "Using $arg_container_engine."
 
   ## Write out config
   # Don't die after this point or we'll have rather unhelpfully deleted the Makefile
@@ -178,6 +181,9 @@ function configure() {
 
     echo "ROOTLESS_CONTAINER := $ROOTLESS_CONTAINER"
     echo "CONTAINER_ENGINE := $arg_container_engine"
+    if [[ -n "${arg_native:-}" ]]; then
+      echo "NATIVE_BUILD := 1"
+    fi
     if [[ -n "$arg_docker_opts" ]]; then
       echo "DOCKER_OPTS := $arg_docker_opts"
     fi
@@ -206,9 +212,12 @@ function configure() {
       echo "WITHOUT_STEAMRT_DEPENDS := 1"
     fi
 
-    echo "HOST_CFLAGS := ${CFLAGS:--O2 -march=nocona -mtune=core-avx2}"
-    echo "HOST_RUSTFLAGS := ${RUSTFLAGS:--Copt-level=3 -Ctarget-cpu=nocona}"
-    echo "USE_LTO := ${USE_LTO:-0}"
+    echo "HOST_CFLAGS := ${arg_cflags:-${CFLAGS:--O2 -march=nocona -mtune=core-avx2}}"
+    if [[ -n "${arg_cxxflags:-}" ]]; then
+      echo "HOST_CXXFLAGS := $arg_cxxflags"
+    fi
+    echo "HOST_RUSTFLAGS := ${arg_rustflags:-${RUSTFLAGS:--Copt-level=3 -Ctarget-cpu=nocona}}"
+    echo "USE_LTO := ${arg_lto:-${USE_LTO:-0}}"
 
     # Include base
     echo ""
@@ -259,7 +268,7 @@ function parse_args() {
     # Looks like an argument does it have a --foo=bar value?
     if [[ ${arg%=*} != "$arg" ]]; then
       val="${arg#*=}"
-      arg="${arg%=*}"
+      arg="${arg%%=*}"
       val_passed=1
     else
       # Otherwise for args that want a value, assume "--arg val" form
@@ -278,6 +287,19 @@ function parse_args() {
     elif [[ $arg = --container-engine ]]; then
       arg_container_engine="$val"
       val_used=1
+    elif [[ $arg = --native ]]; then
+      arg_native="1"
+    elif [[ $arg = --cflags ]]; then
+      arg_cflags="$val"
+      val_used=1
+    elif [[ $arg = --cxxflags ]]; then
+      arg_cxxflags="$val"
+      val_used=1
+    elif [[ $arg = --rustflags ]]; then
+      arg_rustflags="$val"
+      val_used=1
+    elif [[ $arg = --lto ]]; then
+      arg_lto="1"
     elif [[ $arg = --docker-opts ]]; then
       arg_docker_opts="$val"
       val_used=1
@@ -351,6 +373,15 @@ usage() {
   "$1" ""
   "$1" "    --container-engine=<engine> Which Docker-compatible container engine to use,"
   "$1" "                                e.g. podman. Tries to do autodiscovery when not specified."
+  "$1" ""
+  "$1" "    --native            Build with the host toolchain directly, no steamrt container."
+  "$1" "                                The host must provide the target toolchains in PATH:"
+  "$1" "                                x86_64-linux-gnu-gcc, i686-linux-gnu-gcc and the mingw ones."
+  "$1" ""
+  "$1" "    --cflags='<flags>'   Override the C/C++ build flags (HOST_CFLAGS). Also via CFLAGS= env."
+  "$1" "    --cxxflags='<flags>' Extra C++-only flags, appended after the C flags (HOST_CXXFLAGS)."
+  "$1" "    --rustflags='<flags>' Override the Rust build flags (HOST_RUSTFLAGS). Also via RUSTFLAGS= env."
+  "$1" "    --lto               Enable link-time optimization (USE_LTO=1)."
   "$1" ""
   "$1" "    --docker-opts='<options>' Extra options to pass to Docker when invoking the runtime."
   "$1" ""

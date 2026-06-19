@@ -53,4 +53,8 @@ endef
 rules-source = $(call create-rules-source,$(1),$(call toupper,$(1)),$(2))
 
 $(OBJ)/.%-post-source:
+	if [ -f "$(OBJ)/src-$*/configure.ac" ] && [ ! -f "$(OBJ)/src-$*/configure" ]; then \
+		echo ":: autoreconf $* (no shipped configure)" >&2; \
+		( cd "$(OBJ)/src-$*" && autoreconf -fi ); \
+	fi
 	touch $@
