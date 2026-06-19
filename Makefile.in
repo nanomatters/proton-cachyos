@@ -52,6 +52,7 @@ DEPLOY_DIR := ./deploy
 REDIST_DIR := ./redist
 
 HOST_CFLAGS    ?= -O2 -march=nocona -mtune=core-avx2
+HOST_CXXFLAGS  ?=
 CCOS_CFLAGS    := $(HOST_CFLAGS) -pipe
 i386_CFLAGS    := -mstackrealign $(CCOS_CFLAGS) -mfpmath=sse
 x86_64_CFLAGS  := -mcmodel=small $(CCOS_CFLAGS) -mfpmath=sse
@@ -656,13 +657,20 @@ FFMPEG_CONFIGURE_ARGS += \
 	--enable-protocol=rtmp \
 	--enable-protocol=rtsp \
 
+# The steamrt GCC 14 ICEs (prepare_cmp_insn) auto-vectorizing me_cmp.c nsse16_c when
+# -mtune exceeds the -march=nocona baseline. Append -mtune=nocona last to ffmpeg's
+# optflags so it wins the trailing -mtune=core-avx2. A native host GCC is unaffected.
+ifneq ($(NATIVE_BUILD),1)
+FFMPEG_OPTFLAGS_FIX := -mtune=nocona
+endif
+
 FFMPEG_i386-unix_CONFIGURE_ARGS := \
 	--cross-prefix=i686-linux-gnu- \
 	--arch=x86 \
 	--target-os=linux
 
 FFMPEG_i386-unix_CONFIGURE_ARGS += \
-	--optflags="$(CFLAGS) $(i386_CFLAGS)"
+	--optflags="$(CFLAGS) $(i386_CFLAGS) $(FFMPEG_OPTFLAGS_FIX)"
 
 FFMPEG_x86_64-unix_CONFIGURE_ARGS := \
 	--cross-prefix=x86_64-linux-gnu- \
@@ -670,7 +678,7 @@ FFMPEG_x86_64-unix_CONFIGURE_ARGS := \
 	--target-os=linux
 
 FFMPEG_x86_64-unix_CONFIGURE_ARGS += \
-	--optflags="$(CFLAGS) $(x86_64_CFLAGS)"
+	--optflags="$(CFLAGS) $(x86_64_CFLAGS) $(FFMPEG_OPTFLAGS_FIX)"
 
 FFMPEG_aarch64-unix_CONFIGURE_ARGS := \
 	--cross-prefix=aarch64-linux-gnu- \
@@ -2064,6 +2072,10 @@ ifneq ($(ROOTLESS_CONTAINER),1)
 	override DOCKER_OPTS := -e HOME -e USER -e USERID=$(shell id -u) -u $(shell id -u):$(shell id -g) $(DOCKER_OPTS)
 endif
 
+ifeq ($(NATIVE_BUILD),1)
+# Native build: run directly on the host with the host toolchain, no container.
+DOCKER_BASE :=
+else
 ifeq ($(CONTAINER_ENGINE),)
 	CONTAINER_ENGINE := docker
 endif
@@ -2071,6 +2083,7 @@ endif
 DOCKER_BASE = $(CONTAINER_ENGINE) run --rm -v $(SRC):$(SRC)$(CONTAINER_MOUNT_OPTS) -v $(OBJ):$(OBJ)$(CONTAINER_MOUNT_OPTS) \
                 -w $(OBJ) -e MAKEFLAGS \
                 $(DOCKER_OPTS) $(STEAMRT_IMAGE)
+endif
 
 .PHONY: dist deploy redist symstore-tarball
 .DEFAULT dist deploy redist symstore-tarball:

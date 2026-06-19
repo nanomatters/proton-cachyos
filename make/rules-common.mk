@@ -133,7 +133,7 @@ $(2)_$(3)_ENV = \
     CMAKE_PREFIX_PATH="$$(call list-join,:,$$(foreach d,$$($(2)_$(3)_DEPS),$$($$(d)_$(3)_DST)))" \
     CFLAGS="$$($(2)_$(3)_INCFLAGS) $$($(2)_CFLAGS) $$($(3)_CFLAGS) $$(CFLAGS) $$($(2)_$(3)_CFLAGS)" \
     CPPFLAGS="$$($(2)_$(3)_INCFLAGS) $$($(2)_CFLAGS) $$($(3)_CFLAGS) $$(CFLAGS) $$($(2)_$(3)_CFLAGS)" \
-    CXXFLAGS="$$($(2)_$(3)_INCFLAGS) -std=c++17 $$($(2)_CFLAGS) $$($(3)_CFLAGS) $$(CFLAGS) $$($(2)_$(3)_CFLAGS)" \
+    CXXFLAGS="$$($(2)_$(3)_INCFLAGS) -std=c++17 $$($(2)_CFLAGS) $$($(3)_CFLAGS) $$(CFLAGS) $$($(2)_$(3)_CFLAGS) $$(HOST_CXXFLAGS)" \
     LDFLAGS="$$($(2)_$(3)-$(4)_LIBFLAGS) $$($(2)_$(3)_LIBFLAGS) $$($(2)_LDFLAGS) $$($(3)_LDFLAGS) $$(LDFLAGS)" \
     SOURCE_DATE_EPOCH="$$($(2)_$(3)_SOURCE_DATE_EPOCH)" \
 
