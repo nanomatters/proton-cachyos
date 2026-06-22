@@ -11,8 +11,17 @@ from functools import cache
 from itertools import groupby
 from pathlib import Path
 
-from vulkan import VulkanPhysicalDeviceFeatures, VulkanExtensionProperties, VkPhysicalDeviceType, VulkanError, \
-    VulkanInstance, VulkanVersion, VulkanPhysicalDevice
+from vulkan import (
+    VulkanPhysicalDeviceFeatures,
+    VulkanExtensionProperties,
+    VkPhysicalDeviceType,
+    VulkanError,
+    VulkanInstance,
+    VulkanVersion,
+    VulkanPhysicalDevice,
+    VkDriverId
+)
+
 
 base_config = Path(os.getenv('XDG_CONFIG_HOME', '~/.config')).expanduser()
 base_cache = Path(os.getenv('XDG_CACHE_HOME', '~/.cache')).expanduser()
@@ -76,13 +85,16 @@ class GPU:
     deviceUUID: uuid.UUID
     deviceName: str
     vendorID: int
+    driverID: VkDriverId
+    driverName: str
+    driverInfo: str
     apiVersion: VulkanVersion
     features: VulkanPhysicalDeviceFeatures
     extensions: list[VulkanExtensionProperties]
 
     @classmethod
     def from_physical_device(cls, device: VulkanPhysicalDevice):
-        properties, id_properties = device.get_properties()
+        properties, driver_properties, id_properties = device.get_properties()
         features = device.get_features()
         extensions = device.get_extensions()
         return cls(
@@ -90,6 +102,9 @@ class GPU:
             id_properties.deviceUUID,
             properties.deviceName,
             properties.vendorID,
+            driver_properties.driverID,
+            driver_properties.driverName,
+            driver_properties.driverInfo,
             properties.apiVersion,
             features,
             extensions
@@ -170,6 +185,10 @@ if __name__ == '__main__':
 
     print("\nWith features")
     print(primary_gpu_supports_vulkan(1, 1, device_features=['descriptorIndexing']))
+
+    print("\nDriver Info:")
+    for gpu in get_vulkan_gpus():
+        print(f'{gpu.deviceName=} {gpu.deviceUUID=} {gpu.driverID=} {gpu.driverName=} {gpu.driverInfo=}')
 
     pass
 
