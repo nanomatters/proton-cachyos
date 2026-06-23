@@ -49,6 +49,8 @@ def log_environment(env: dict, log_file: io.TextIOWrapper):
         '__NV_PRIME_RENDER_OFFLOAD',
         '__VK_LAYER_NV_optimus',
         '__GLX_VENDOR_LIBRARY_NAME',
+        'DXVK_CONFIG',
+        'VKD3D_CONFIG',
         'MANGOHUD',
         'PROTON_DISCORD_BRIDGE',
         'PROTON_DLSS_UPGRADE',
