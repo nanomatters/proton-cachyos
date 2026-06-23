@@ -1622,7 +1622,7 @@ class Session:
 
         # PROTON_NATIVE_STEAM keeps the builtin steam wrapper from hijacking a real
         # steam.exe, which would forward to native steam and exit.
-        if os.environ.get("PROTON_NATIVE_STEAM", "1") == "1":
+        if os.environ.get("PROTON_NATIVE_STEAM", "0") == "1":
             self.dlloverrides.pop("steam.exe", None)
             self.env["PROTON_DISABLE_LSTEAMCLIENT"] = "1"
 
