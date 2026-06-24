@@ -1875,6 +1875,7 @@ class Session:
         self.check_environment("PROTON_HIDE_APU", "hideapu")
         self.check_environment("PROTON_ENABLE_MEDIACONV", "mediaconv")
         self.check_environment("PROTON_NO_WM_DECORATION", "nowmdecoration")
+        self.env.setdefault("PROTON_ENABLE_WAYLAND", "1")
         self.check_environment("PROTON_ENABLE_WAYLAND", "wayland")
         self.check_environment("PROTON_USE_WAYLAND", "wayland")
         self.check_environment("PROTON_PREFER_SDL", "sdlinput")
