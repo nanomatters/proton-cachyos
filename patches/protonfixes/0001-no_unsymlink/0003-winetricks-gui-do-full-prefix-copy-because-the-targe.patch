@@ -1,0 +1,31 @@
+From 621af1a5bb0c24d05f99172dbbf765b3884aa8ae Mon Sep 17 00:00:00 2001
+From: Stelios Tsampas <loathingkernel@gmail.com>
+Date: Wed, 27 May 2026 18:49:28 +0300
+Subject: [PATCH 3/4] winetricks-gui: do full prefix copy because the target
+ verb is unknown
+
+---
+ gamefixes-umu/winetricks-gui.py | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/gamefixes-umu/winetricks-gui.py b/gamefixes-umu/winetricks-gui.py
+index aa308f3..f88a5f9 100755
+--- a/gamefixes-umu/winetricks-gui.py
++++ b/gamefixes-umu/winetricks-gui.py
+@@ -1,8 +1,13 @@
+ """Call Winetricks GUI"""
++import os
+ 
+ from protonfixes import util
+ 
+ 
++def early() -> None:
++    os.environ['PROTON_DLL_COPY'] = '*'
++
++
+ def main() -> None:
+     """Requires seccomp"""
+     util.protontricks('gui')
+-- 
+2.54.0
+

@@ -1,0 +1,62 @@
+From ba49785375fe1a6c204c93d33c097ec9e1e248d8 Mon Sep 17 00:00:00 2001
+From: Stelios Tsampas <loathingkernel@gmail.com>
+Date: Wed, 27 May 2026 18:28:33 +0300
+Subject: [PATCH 2/4] module: check for special cases in winetricks verbs
+
+---
+ __init__.py  |  2 ++
+ utilities.py | 18 ++++++++++++++++++
+ 2 files changed, 20 insertions(+)
+
+diff --git a/__init__.py b/__init__.py
+index b68eb84..92370bc 100644
+--- a/__init__.py
++++ b/__init__.py
+@@ -9,6 +9,7 @@ from . import fix
+ from .logger import log
+ from .upscalers import setup_upscalers
+ from .utilities import (
++    check_verb_requirements,
+     setup_frame_rate,
+     setup_local_shader_cache,
+     setup_mount_drives,
+@@ -65,6 +66,7 @@ def execute_early() -> None:
+     elif not check_conditions():
+         log.warn('Skipping fix execution. We are probably running a unit test.')
+     else:
++        check_verb_requirements()
+         fix.early()
+ 
+ 
+diff --git a/utilities.py b/utilities.py
+index a5b7cb4..41cd311 100644
+--- a/utilities.py
++++ b/utilities.py
+@@ -8,6 +8,24 @@ from typing import Callable
+ from .logger import log
+ 
+ 
++DLL_COPY_VERBS = {
++    'dotnet',
++}
++
++
++def check_verb_requirements() -> None:
++    """Check if we are installing winetricks verbs and apply env configuration"""
++    for idx, part in enumerate(sys.argv):
++        if part.endswith('winetricks'):
++            verbs = sys.argv[idx+1:]
++            break
++    else:
++        verbs = []
++
++    if verbs and any(canary in verb for verb in verbs for canary in DLL_COPY_VERBS):
++        os.environ['PROTON_DLL_COPY'] = '*'
++
++
+ def winetricks(env: dict, wine_bin: str, wineserver_bin: str) -> None:
+     """Handle winetricks"""
+     if (
+-- 
+2.54.0
+

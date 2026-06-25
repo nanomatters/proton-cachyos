@@ -1,0 +1,66 @@
+From 3a551a558517dec8be095caad2a6cca80e106c7b Mon Sep 17 00:00:00 2001
+From: Stelios Tsampas <loathingkernel@gmail.com>
+Date: Sat, 13 Jun 2026 18:30:24 +0300
+Subject: [PATCH] chore: remove uses of `STEAM_BASE_FOLDER`, use
+ `STEAM_COMPAT_CLIENT_INSTALL_PATH` instead
+
+`STEAM_BASE_FOLDER` is empty in SteamRT3 Beta Client
+---
+ gamefixes-steam/2246340.py |  2 +-
+ util.py                    | 20 ++++++++++++--------
+ 2 files changed, 13 insertions(+), 9 deletions(-)
+
+diff --git a/gamefixes-steam/2246340.py b/gamefixes-steam/2246340.py
+index e34f948..4d857f3 100644
+--- a/gamefixes-steam/2246340.py
++++ b/gamefixes-steam/2246340.py
+@@ -8,7 +8,7 @@ def main() -> None:
+     """Imports Monster Hunter: World save from remote steam cloud folder. We need to get steam cloud ID, not steamID, which is only reported as folder name in local"""
+     # get all remote IDs to anticipate for multi accounts
+     listRemoteID = [
+-        name for name in os.listdir(f'{os.environ["STEAM_BASE_FOLDER"]}/userdata')
++        name for name in os.listdir(f'{os.environ.get("STEAM_COMPAT_CLIENT_INSTALL_PATH", "")}/userdata')
+     ]
+ 
+     # import save for all remote IDs because we don't know which one is the right ID. import function is robust enough to anticipate wrong ID.
+diff --git a/util.py b/util.py
+index e09ccd7..ea1d730 100644
+--- a/util.py
++++ b/util.py
+@@ -1089,7 +1089,7 @@ def import_saves_folder(
+     # The libraryfolders.vdf file contains the paths for all your Steam library folders that are known to the Steam client, including those on external drives or SD cards.
+     try:
+         with open(
+-            f'{os.environ["STEAM_BASE_FOLDER"]}/steamapps/libraryfolders.vdf'
++            f'{os.environ.get("STEAM_COMPAT_CLIENT_INSTALL_PATH", "")}/steamapps/libraryfolders.vdf'
+         ) as f:
+             for i in f.readlines():
+                 # Looking for lines of the format
+@@ -1162,13 +1162,17 @@ def import_saves_folder(
+ def get_steam_account_id() -> Optional[str]:
+     """Returns your 17-digit Steam account ID"""
+     # The loginusers.vdf file contains information about accounts known to the Steam client, and contains their 17-digit IDs
+-    with open(f'{os.environ["STEAM_BASE_FOLDER"]}/config/loginusers.vdf') as f:
+-        lastFoundId = None
+-        for i in f.readlines():
+-            if len(i) > 1 and i[2:-2].isdigit():
+-                lastFoundId = i[2:-2]
+-            elif i == (f'\t\t"AccountName"\t\t"{os.environ["SteamUser"]}"\n'):
+-                return lastFoundId
++    try:
++        with open(f'{os.environ.get("STEAM_COMPAT_CLIENT_INSTALL_PATH", "")}/config/loginusers.vdf') as f:
++            lastFoundId = None
++            for i in f.readlines():
++                if len(i) > 1 and i[2:-2].isdigit():
++                    lastFoundId = i[2:-2]
++                elif i == (f'\t\t"AccountName"\t\t"{os.environ["SteamUser"]}"\n'):
++                    return lastFoundId
++    except FileNotFoundError:
++        log.info("Could not find Steam's loginusers.vdf file.")
++        return None
+     return None
+ 
+ 
+-- 
+2.54.0
+

@@ -1,0 +1,43 @@
+From 73e75ecaac8dfa545cc20d94af68e1b0c1e8a8b8 Mon Sep 17 00:00:00 2001
+From: Stelios Tsampas <loathingkernel@gmail.com>
+Date: Sat, 13 Jun 2026 17:56:55 +0300
+Subject: [PATCH 4/4] gamefixes: add early stage for new fixes
+
+---
+ gamefixes-steam/2129370.py | 5 +++++
+ gamefixes-steam/23460.py   | 1 +
+ 2 files changed, 6 insertions(+)
+
+diff --git a/gamefixes-steam/2129370.py b/gamefixes-steam/2129370.py
+index 0038275..6c36a94 100644
+--- a/gamefixes-steam/2129370.py
++++ b/gamefixes-steam/2129370.py
+@@ -1,8 +1,13 @@
+ r"""Fix for S\&box Editor"""
++import os
+ 
+ from protonfixes import util
+ 
+ 
++def early() -> None:
++    os.environ['PROTON_DLL_COPY'] = '*'
++
++
+ def main() -> None:
+     r"""Installs  dotnetdesktop10 for the S\&box editor"""
+     util.protontricks('dotnetdesktop10')
+diff --git a/gamefixes-steam/23460.py b/gamefixes-steam/23460.py
+index c2af892..501d843 100644
+--- a/gamefixes-steam/23460.py
++++ b/gamefixes-steam/23460.py
+@@ -2,6 +2,7 @@
+ Works with dotnet35sp1 only, now without needing Proton5
+ Videos still don't work.
+ """
++import os
+ 
+ from protonfixes import util
+ 
+-- 
+2.54.0
+
