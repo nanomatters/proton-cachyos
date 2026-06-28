@@ -1,7 +1,7 @@
-From 422efc1f4169b600420751f130037b262381df1e Mon Sep 17 00:00:00 2001
+From 45d50210720588d412f9b757844b8e7bc30c8e4a Mon Sep 17 00:00:00 2001
 From: Stelios Tsampas <loathingkernel@gmail.com>
 Date: Tue, 23 Jun 2026 12:40:43 +0300
-Subject: [PATCH 3/3] upscalers: add optiscaler downloader
+Subject: [PATCH 6/6] upscalers: add optiscaler downloader
 
 Config values are passed through the `PROTON_OPTISCALER_CONFIG` environment
 variable. The config is a semicolon (`;`) separated string of individual options.
@@ -23,14 +23,14 @@ a different config should be applied through the env variable.
 
 Using this will also remove any comments from the `OptiScaler.ini` file.
 ---
- upscalers.py | 231 +++++++++++++++++++++++++++++++++++++++++++++++++--
- 1 file changed, 226 insertions(+), 5 deletions(-)
+ upscalers.py | 209 ++++++++++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 206 insertions(+), 3 deletions(-)
 
 diff --git a/upscalers.py b/upscalers.py
-index 189706a..f874807 100644
+index f12e897..4e8e106 100644
 --- a/upscalers.py
 +++ b/upscalers.py
-@@ -1,10 +1,12 @@
+@@ -1,9 +1,11 @@
  """Download and setup DLLs to upgrade various upscalers"""
  
 +import configparser
@@ -38,17 +38,17 @@ index 189706a..f874807 100644
  import json
  import lzma
  import os
- import shutil
 +import tarfile
  import urllib.request
  from functools import lru_cache
  from urllib.error import HTTPError, URLError
-@@ -82,9 +84,15 @@ __dlss_section = 'dlss_files'
+@@ -80,11 +82,16 @@ def __dll_download_exists(url: str) -> bool:
+ __dlss_section = 'dlss_files'
  __xess_section = 'xess_files'
- __fsr3_section = 'fsr3_files'
  __fsr4_section = 'fsr4_files'
 +__opti_section = 'opti_files'
-+__fdfx_section = 'fdfx_files'
+ __ffx3_section = 'ffx3_files'
+ __ffx4_section = 'ffx4_files'
  __version_file = 'upscaler_files'
  
  
@@ -59,35 +59,7 @@ index 189706a..f874807 100644
  def __get_dlss_dlls(version: str = 'default') -> dict:
      return {
          'drive_c/windows/system32/umu/nvngx_dlss.dll': __get_dll_manifest('dlss', version),
-@@ -121,6 +129,19 @@ def __get_fsr3_dlls(version: str = 'default') -> dict:
-     }
- 
- 
-+def __get_fdfx_dlls(version: str = 'default') -> dict:
-+    return {
-+        'drive_c/windows/system32/umu/amd_fidelityfx_framegeneration_dx12.dll': __get_dll_manifest(
-+            'fsr_40_fg_dx12', version
-+        ),
-+        'drive_c/windows/system32/umu/amd_fidelityfx_loader_dx12.dll': __get_dll_manifest(
-+            'fsr_40_ldr_dx12', version
-+        ),
-+        'drive_c/windows/system32/umu/amd_fidelityfx_upscaler_dx12.dll': __get_dll_manifest(
-+            'fsr_40_up_dx12', version
-+        ),
-+    }
-+
- def __get_fsr4_dlls(version: str = 'default') -> dict:
-     __fsr4_dlls = {
-         '4.0.0': {
-@@ -190,6 +211,7 @@ def __get_upscaler_items(name: str, version: str) -> tuple[dict, Callable, str]:
-         'xess': (__get_xess_dlls, __download_extract_zip, __xess_section),
-         'fsr3': (__get_fsr3_dlls, __download_extract_zip, __fsr3_section),
-         'fsr4': (__get_fsr4_dlls, __download_fsr4, __fsr4_section),
-+        'fdfx': (__get_fdfx_dlls, __download_extract_zip, __fdfx_section),
-     }
-     get_items, dlfunc, section = upscalers[name]
-     try:
-@@ -323,6 +345,67 @@ def check_upscaler(
+@@ -282,6 +289,67 @@ def check_upscaler(
      )
  
  
@@ -155,7 +127,7 @@ index 189706a..f874807 100644
  def __download_upscaler_files(
      compat_dir: str,
      prefix_dir: str,
-@@ -464,6 +547,64 @@ def download_upscaler(
+@@ -408,6 +476,64 @@ def download_upscaler(
          log.crit(e)
  
  
@@ -220,7 +192,7 @@ index 189706a..f874807 100644
  def setup_upscaler(
      name: str,
      compat_dir: str,
-@@ -476,6 +617,71 @@ def setup_upscaler(
+@@ -420,6 +546,71 @@ def setup_upscaler(
      return enabled
  
  
@@ -292,48 +264,45 @@ index 189706a..f874807 100644
  def get_version(env: dict, key: str, fallback: str) -> str:
      return env[key] if env.get(key, '0') not in {'0', '1'} else fallback
  
-@@ -492,14 +698,16 @@ def setup_upscalers(
-     fsr3_version = get_version(env, 'PROTON_FSR3_UPGRADE', '1.0.1.41314')
-     fsr4rdna3_version = get_version(env, 'PROTON_FSR4_RDNA3_UPGRADE', '4.0.0')
+@@ -439,16 +630,17 @@ def setup_upscalers(
      fsr4_version = get_version(env, 'PROTON_FSR4_UPGRADE', 'default')
--    fsr4_version = fsr4rdna3_version if 'fsr4rdna3' in compat_config else fsr4_version
-+    # fdfx_version controls both the amdxcffx64.dll version and the amd_fidelityfx_*.dll versions
-+    fdfx_version = fsr4rdna3_version if 'fsr4rdna3' in compat_config else fsr4_version
+     fsr4_version = fsr3_version if 'fsr3' in compat_config else fsr4_version
+ 
 +    optiscaler_version = get_version(env, 'PROTON_USE_OPTISCALER', 'default')
+     ffx3_version = get_version(env, 'PROTON_FFX3_UPGRADE', '1.0.1.41314')
+     ffx4_version = get_version(env, 'PROTON_FFX4_UPGRADE', 'default')
  
      upscaler_replace = set()
      upscalers = (
 -        ('dlss', dlss_version, 'dlss' in compat_config),
 -        ('xess', xess_version, 'xess' in compat_config),
--        ('fsr3', fsr3_version, 'fsr3' in compat_config),
--        ('fsr4', fsr4_version, 'fsr4' in compat_config or 'fsr4rdna3' in compat_config),
 +        ('dlss', dlss_version, 'dlss' in compat_config or 'optiscaler' in compat_config),
 +        ('xess', xess_version, 'xess' in compat_config or 'optiscaler' in compat_config),
-+        ('fsr3', fsr3_version, 'fsr3' in compat_config or 'optiscaler' in compat_config),
-+        ('fsr4', fdfx_version, 'fsr4' in compat_config or 'fsr4rdna3' in compat_config),
+         # amdxcffx64 4.1.1
+         ('fsr4', fsr4_version, True),
+-        ('ffx3', ffx3_version, 'ffx3' in compat_config),
++        ('ffx3', ffx3_version, 'ffx3' in compat_config or 'optiscaler' in compat_config),
+         ('ffx4', ffx4_version, 'ffx4' in compat_config),
      )
      for upscaler in upscalers:
-         name, version, enabled = upscaler
-@@ -507,6 +715,19 @@ def setup_upscalers(
+@@ -457,6 +649,17 @@ def setup_upscalers(
              log.info(f'Automatic {name.upper()} upgrade enabled.')
              upscaler_replace.add(name)
  
 +    if 'optiscaler' in compat_config:
 +        if setup_optiscaler(env, compat_dir, prefix_dir, optiscaler_version):
 +            log.info('OptiScaler enabled.')
-+            upscaler_replace.clear()
-+            if 'fsr4' in compat_config or 'fsr4rdna3' in compat_config:
-+                if fdfx_version in {'4.0.0', '4.0.1'}:
-+                    clean_upscaler('fdfx', compat_dir, prefix_dir)
++            if 'fsr4' in compat_config:
++                if fsr4_version in {'4.0.0', '4.0.1', 'default'}:
++                    setup_upscaler('ffx3', compat_dir, prefix_dir, ffx3_version)
 +                else:
-+                    setup_upscaler('fdfx', compat_dir, prefix_dir, fdfx_version)
-+                if 'fsr4rdna3' in compat_config:
-+                    env['DXIL_SPIRV_CONFIG'] = 'wmma_rdna3_workaround'
++                    setup_upscaler('ffx4', compat_dir, prefix_dir, fsr4_version)
 +            env['WINE_OPTISCALER_NAME'] = env.get('PROTON_OPTISCALER_NAME', 'dxgi.dll')
++            upscaler_replace.clear()
 +
      if 'fsr4' in upscaler_replace:
-         env['FSR4_UPGRADE'] = '1'
-         if 'mlfg' in compat_config:
+         if 'fsr3' in compat_config:
+             env['FSR3_UPGRADE'] = '1'
 -- 
 2.54.0
 
