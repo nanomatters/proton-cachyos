@@ -71,14 +71,6 @@ ifneq ($(SUPPRESS_WARNINGS),)
 	CFLAGS += -w
 endif
 
-ifneq ($(USE_LTO),1)
-	GST_LTO :=
-	FFMPEG_LTO :=
-else
-	GST_LTO := -Db_lto=true
-	FFMPEG_LTO := --enable-lto
-endif
-
 $(DST_DIR):
 	mkdir -p $@
 
@@ -244,7 +236,6 @@ GST_ORC_MESON_ARGS := \
 	-Dorc-test=disabled
 
 GST_ORC_MESON_ARGS += \
-	$(GST_LTO) \
 	-Dexamples=disabled \
 	-Dtests=disabled \
 	-Dbenchmarks=disabled \
@@ -266,7 +257,6 @@ GSTREAMER_MESON_ARGS := \
 	-Dbash-completion=disabled
 
 GSTREAMER_MESON_ARGS += \
-	$(GST_LTO) \
 	-Dptp-helper-permissions=capabilities \
 	-Ddbghelp=disabled \
 	-Dintrospection=disabled \
@@ -329,7 +319,6 @@ GST_BASE_MESON_ARGS := \
 	--wrap-mode nodownload \
 
 GST_BASE_MESON_ARGS += \
-	$(GST_LTO) \
 	-Dintrospection=disabled \
 	-Dgobject-cast-checks=disabled \
 	-Dglib-asserts=disabled \
@@ -380,7 +369,6 @@ GST_GOOD_MESON_ARGS := \
 	-Dorc=enabled
 
 GST_GOOD_MESON_ARGS += \
-	$(GST_LTO) \
 	-Dgobject-cast-checks=disabled \
 	-Dglib-asserts=disabled \
 	-Dglib-checks=disabled \
@@ -423,7 +411,6 @@ GST_BAD_MESON_ARGS := \
 	-Daudiobuffersplit=enabled
 
 GST_BAD_MESON_ARGS += \
-	$(GST_LTO) \
 	-Dintrospection=disabled \
 	-Dgobject-cast-checks=disabled \
 	-Dglib-asserts=disabled \
@@ -539,7 +526,6 @@ $(eval $(call rules-meson,gst_bad,aarch64,unix))
 ##
 
 GST_UGLY_MESON_ARGS := \
-	$(GST_LTO) \
 	-Dauto_features=disabled \
 	-Dgobject-cast-checks=disabled \
 	-Dglib-asserts=disabled \
@@ -577,7 +563,6 @@ FFMPEG_CONFIGURE_ARGS := \
 	--enable-demuxer=matroska \
 
 FFMPEG_CONFIGURE_ARGS += \
-	$(FFMPEG_LTO) \
 	--enable-decoders \
 	--enable-muxers \
 	--enable-demuxers \
@@ -691,7 +676,6 @@ $(eval $(call rules-configure,ffmpeg,aarch64,unix))
 ##
 
 GST_LIBAV_MESON_ARGS := \
-    $(GST_LTO) \
     -Dtests=disabled \
     -Ddoc=disabled \
 
