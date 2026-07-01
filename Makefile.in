@@ -64,7 +64,7 @@ aarch64_RUSTFLAGS := -Copt-level=3 -Ctarget-cpu=armv8.2-a
 arm64ec_RUSTFLAGS := -Copt-level=3 -Ctarget-cpu=armv8.2-a
 
 CFLAGS  = -fwrapv -fno-strict-aliasing
-CFLAGS += -ggdb -ffunction-sections -fdata-sections -fno-omit-frame-pointer
+CFLAGS += -ffunction-sections -fdata-sections -fno-omit-frame-pointer
 CFLAGS += -ffile-prefix-map=$(CCACHE_BASEDIR)=.
 
 ifneq ($(SUPPRESS_WARNINGS),)
@@ -130,6 +130,7 @@ ifneq ($(UNSTRIPPED_BUILD),)
     STRIP :=
     INSTALL_PROGRAM_FLAGS :=
     MESON_STRIP_ARG :=
+    CFLAGS += -ggdb
 else
     STRIP := $(TOOLCHAIN_PREFIX)strip
     INSTALL_PROGRAM_FLAGS := -s
