@@ -72,6 +72,8 @@ def proton_add_config() -> set:
     configs = os.environ.get("PROTON_ADD_CONFIG", "").split(',')
     steam_configs = set()
     for config in configs:
+        if not config or config == '=':
+            continue
         if '=' not in config:
             steam_configs.add(config)
             if config in _config_envvars:
@@ -219,10 +221,14 @@ def primary_gpu_supports_vulkan(
 
 
 if __name__ == '__main__':
-    test_config = "wow64,fsr4=4.0.0,xess=0,dlss,enablenvapi,noenv=5"
-    print(test_config)
-    os.environ["PROTON_ADD_CONFIG"] = test_config
-    print(proton_add_config())
+
+    os.environ["PROTON_ADD_CONFIG"] = ""
+    print("PROTON_ADD_CONFIG:", os.environ["PROTON_ADD_CONFIG"])
+    print("config set:", proton_add_config())
+
+    os.environ["PROTON_ADD_CONFIG"] = "wow64,fsr4=4.0.0,xess=0,dlss,enablenvapi,noenv=5,,="
+    print("PROTON_ADD_CONFIG:", os.environ["PROTON_ADD_CONFIG"])
+    print("config set:", proton_add_config())
     for key in os.environ:
         if key in _config_envvars.values():
             print(key, os.environ[key])
