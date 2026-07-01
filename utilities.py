@@ -75,6 +75,11 @@ def log_environment(env: dict, log_file: io.TextIOWrapper):
         'PROTON_FSR3_UPGRADE',
         'PROTON_FSR4_UPGRADE',
         'PROTON_FSR4_RDNA3_UPGRADE',
+        'PROTON_FFX3_UPGRADE',
+        'PROTON_FFX4_UPGRADE',
+        'PROTON_MLFG_UPGRADE',
+        'PROTON_LOCAL_SHADER_CACHE',
+        'WINE_CANONICAL_HOLE',
     ) if name in env):
         log_file.write(var + ": " + env[var] + "\n")
 
