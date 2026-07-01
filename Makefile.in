@@ -135,8 +135,7 @@ else
     INSTALL_PROGRAM_FLAGS := -s
     MESON_STRIP_ARG := --strip
 ifeq ($(shell cc --version|grep 'clang'),)
-    i386_CFLAGS += -s
-    x86_64_CFLAGS += -s
+    CFLAGS += -s
 endif
 endif
 
