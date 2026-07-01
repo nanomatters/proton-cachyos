@@ -69,7 +69,7 @@ _config_envvars = {
 
 
 def proton_add_config() -> set:
-    configs = os.environ["PROTON_ADD_CONFIG"].split(',')
+    configs = os.environ.get("PROTON_ADD_CONFIG", "").split(',')
     steam_configs = set()
     for config in configs:
         if '=' not in config:
