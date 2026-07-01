@@ -56,6 +56,34 @@ config = Config()
 log = Log()
 
 
+_config_envvars = {
+    'wow64': 'PROTON_USE_WOW64',
+    'dlss': 'PROTON_DLSS_UPGRADE',
+    'xess': 'PROTON_XESS_UPGRADE',
+    'fsr3': 'PROTON_FSR4_UPGRADE',
+    'fsr4': 'PROTON_FSR4_UPGRADE',
+    'ffx3': 'PROTON_FFX3_UPGRADE',
+    'ffx4': 'PROTON_FFX4_UPGRADE',
+    'optiscaler': 'PROTON_USE_OPTISCALER',
+}
+
+
+def proton_add_config() -> set:
+    configs = os.environ["PROTON_ADD_CONFIG"].split(',')
+    steam_configs = set()
+    for config in configs:
+        if '=' not in config:
+            steam_configs.add(config)
+            if config in _config_envvars:
+                os.environ[_config_envvars[config]] = '1'
+        else:
+            option, value = config.split('=', maxsplit=1)
+            steam_configs.add(option)
+            if value and option in _config_envvars:
+                os.environ[_config_envvars[option]] = value
+    return steam_configs
+
+
 def log_environment(env: dict, log_file: io.TextIOWrapper):
     log_file.write('======================\n')
     log_file.write('Inherited environment\n')
@@ -191,6 +219,14 @@ def primary_gpu_supports_vulkan(
 
 
 if __name__ == '__main__':
+    test_config = "wow64,fsr4=4.0.0,xess=0,dlss,enablenvapi,noenv=5"
+    print(test_config)
+    os.environ["PROTON_ADD_CONFIG"] = test_config
+    print(proton_add_config())
+    for key in os.environ:
+        if key in _config_envvars.values():
+            print(key, os.environ[key])
+
     print("\nDifferent versions")
     print(primary_gpu_supports_vulkan(1,2))
     print(primary_gpu_supports_vulkan(1,3))
