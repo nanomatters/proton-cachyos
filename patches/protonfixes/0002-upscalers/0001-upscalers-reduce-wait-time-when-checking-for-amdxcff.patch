@@ -1,7 +1,7 @@
 From dc9e9fbd0280011535d076d048b40c2206e49a94 Mon Sep 17 00:00:00 2001
 From: Stelios Tsampas <loathingkernel@gmail.com>
 Date: Wed, 17 Jun 2026 12:33:05 +0300
-Subject: [PATCH 1/6] upscalers: reduce wait time when checking for amdxcffx64
+Subject: [PATCH 1/8] upscalers: reduce wait time when checking for amdxcffx64
  dll and hide failure
 
 ---
@@ -69,5 +69,5 @@ index 0e38133..b557a29 100644
              return False
          log.debug(f'Found matching file in prefix "{dst}"')
 -- 
-2.54.0
+2.55.0
 

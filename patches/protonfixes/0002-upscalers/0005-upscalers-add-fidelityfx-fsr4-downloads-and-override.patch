@@ -1,7 +1,7 @@
 From 3562141b86c60f101f2898ddd76df05bdf37c266 Mon Sep 17 00:00:00 2001
 From: Stelios Tsampas <loathingkernel@gmail.com>
 Date: Sun, 28 Jun 2026 23:21:26 +0300
-Subject: [PATCH 5/6] upscalers: add fidelityfx fsr4 downloads and overrides
+Subject: [PATCH 5/8] upscalers: add fidelityfx fsr4 downloads and overrides
 
 ---
  upscalers.py | 21 +++++++++++++++++++++
@@ -80,5 +80,5 @@ index a455146..f12e897 100644
          env['WINE_UPSCALER_REPLACE'] = ','.join(upscaler_replace)
          log.debug(f'WINE_UPSCALER_REPLACE: {env["WINE_UPSCALER_REPLACE"]}.')
 -- 
-2.54.0
+2.55.0
 

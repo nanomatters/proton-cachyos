@@ -1,7 +1,7 @@
 From ccbf0b7de75bb483db239b8e1f4d68e0b2303d3d Mon Sep 17 00:00:00 2001
 From: Stelios Tsampas <loathingkernel@gmail.com>
 Date: Sat, 27 Jun 2026 10:25:44 +0300
-Subject: [PATCH 3/6] upscalers: update fsr4 to use the proton-upscalers repo
+Subject: [PATCH 3/8] upscalers: update fsr4 to use the proton-upscalers repo
 
 ---
  upscalers.py | 78 +++-------------------------------------------------
@@ -112,5 +112,5 @@ index 189706a..754f703 100644
      name: str, compat_dir: str, prefix_dir: str, version: str = 'default'
  ) -> None:
 -- 
-2.54.0
+2.55.0
 

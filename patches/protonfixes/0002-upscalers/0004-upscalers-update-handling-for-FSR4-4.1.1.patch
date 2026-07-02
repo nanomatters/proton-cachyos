@@ -1,7 +1,7 @@
 From 9fa57589a61b49fef5963f8b757212a767c31d07 Mon Sep 17 00:00:00 2001
 From: Stelios Tsampas <loathingkernel@gmail.com>
 Date: Sun, 28 Jun 2026 22:52:59 +0300
-Subject: [PATCH 4/6] upscalers: update handling for FSR4 4.1.1
+Subject: [PATCH 4/8] upscalers: update handling for FSR4 4.1.1
 
 ---
  upscalers.py | 30 ++++++++++++++++--------------
@@ -106,5 +106,5 @@ index 754f703..a455146 100644
 -
  __all__ = ['setup_upscalers']
 -- 
-2.54.0
+2.55.0
 
