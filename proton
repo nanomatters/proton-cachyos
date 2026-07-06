@@ -1158,12 +1158,12 @@ class CompatData:
                             prefix=self.prefix_dir, track_file=tracked_files, link_debug=True)
 
                 use_dxvk_sarek = "dxvksarek" in g_session.compat_config and os.path.isdir(g_proton.lib_dir + "wine/dxvk-sarek")
-                use_dxvk_llasync = "dxvkllasync" in g_session.compat_config and os.path.isdir(g_proton.lib_dir + "wine/dxvk-llasync")
+                use_dxvk_lowlatency = "dxvklowlatency" in g_session.compat_config and os.path.isdir(g_proton.lib_dir + "wine/dxvk-low-latency")
                 if use_dxvk_sarek:
                     use_nvapi = False
                     dxvk_path = "dxvk-sarek/"
-                elif use_dxvk_llasync:
-                    dxvk_path = "dxvk-llasync/"
+                elif use_dxvk_lowlatency:
+                    dxvk_path = "dxvk-low-latency/"
                 else:
                     dxvk_path = "dxvk/"
 
@@ -1867,7 +1867,6 @@ class Session:
         self.check_environment("PROTON_NO_D3D11", "nod3d11")
         self.check_environment("PROTON_NO_D3D10", "nod3d10")
         self.check_environment("PROTON_DXVK_SAREK", "dxvksarek")
-        self.check_environment("PROTON_DXVK_LLASYNC", "dxvkllasync")
         self.check_environment("PROTON_DXVK_LOWLATENCY", "dxvklowlatency")
         self.check_environment("PROTON_NO_ESYNC", "noesync")
         self.check_environment("PROTON_NO_FSYNC", "nofsync")
