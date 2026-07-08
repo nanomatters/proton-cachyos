@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from functools import cache
 from itertools import groupby
 from pathlib import Path
+from typing import Callable
 
 from vulkan import (
     VulkanPhysicalDeviceFeatures,
@@ -112,6 +113,13 @@ def log_environment(env: dict, log_file: io.TextIOWrapper):
         'WINE_CANONICAL_HOLE',
     ) if name in env):
         log_file.write(var + ": " + env[var] + "\n")
+
+
+def add_vk_implicit_layer(method: Callable, env: dict, path: str) -> None:
+    if 'VK_IMPLICIT_LAYER_PATH' in env:
+        method(env, "VK_IMPLICIT_LAYER_PATH", path, ":")
+    else:
+        method(env, "VK_ADD_IMPLICIT_LAYER_PATH", path, ":")
 
 
 def is_driver_loaded(d):
@@ -255,4 +263,10 @@ if __name__ == '__main__':
     pass
 
 
-__all__ = ['primary_gpu_supports_vulkan', 'get_vulkan_gpus', 'log_environment', 'is_driver_loaded']
+__all__ = [
+    'primary_gpu_supports_vulkan',
+    'get_vulkan_gpus',
+    'log_environment',
+    'is_driver_loaded',
+    'add_vk_implicit_layer',
+]
