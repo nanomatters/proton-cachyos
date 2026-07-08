@@ -1946,7 +1946,7 @@ class Session:
 
         self.check_environment("LOW_LATENCY_LAYER", "lowlatencylayer")
         if "lowlatencylayer" in self.compat_config:
-            append_to_env_str(self.env, "VK_IMPLICIT_LAYER_PATH", g_proton.dist_dir + "share/low_latency_layer/implicit_layer.d", ":")
+            utilities.add_vk_implicit_layer(prepend_to_env_str, self.env, g_proton.dist_dir + "share/low_latency_layer/implicit_layer.d")
 
         self.check_environment("ENABLE_VKBASALT", "vkbasalt")
         if "vkbasalt" in self.compat_config:
