@@ -1942,7 +1942,7 @@ class Session:
 
         self.check_environment("DXVK_NVAPI_VKREFLEX", "vkreflex")
         if "vkreflex" in self.compat_config and "disablenvapi" not in self.compat_config and utilities.is_driver_loaded({'nvidia'}):
-            append_to_env_str(self.env, "VK_IMPLICIT_LAYER_PATH", g_proton.dist_dir + "share/dxvk-nvapi-vkreflex-layer/implicit_layer.d", ":")
+            utilities.add_vk_implicit_layer(prepend_to_env_str, self.env, g_proton.dist_dir + "share/dxvk-nvapi-vkreflex-layer/implicit_layer.d")
 
         self.check_environment("LOW_LATENCY_LAYER", "lowlatencylayer")
         if "lowlatencylayer" in self.compat_config:
