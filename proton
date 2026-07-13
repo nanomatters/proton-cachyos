@@ -1644,6 +1644,12 @@ class Session:
                 else:
                     self.compat_config.add(cur)
 
+        # PROTON_NATIVE_STEAM keeps the builtin steam wrapper from hijacking a real
+        # steam.exe, which would forward to native steam and exit.
+        if os.environ.get("PROTON_NATIVE_STEAM", "0") == "1":
+            self.dlloverrides.pop("steam.exe", None)
+            self.env["PROTON_DISABLE_LSTEAMCLIENT"] = "1"
+
         #turn forcelgadd on by default unless it is disabled in compat config
         if "noforcelgadd" not in self.compat_config:
             self.compat_config.add("forcelgadd")
@@ -1893,6 +1899,7 @@ class Session:
         self.check_environment("PROTON_HIDE_APU", "hideapu")
         self.check_environment("PROTON_ENABLE_MEDIACONV", "mediaconv")
         self.check_environment("PROTON_NO_WM_DECORATION", "nowmdecoration")
+        self.env.setdefault("PROTON_ENABLE_WAYLAND", "1")
         self.check_environment("PROTON_ENABLE_WAYLAND", "wayland")
         self.check_environment("PROTON_USE_WAYLAND", "wayland")
         self.check_environment("PROTON_PREFER_SDL", "sdlinput")
