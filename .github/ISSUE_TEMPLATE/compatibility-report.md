@@ -5,26 +5,36 @@ about: Game compatibility issues.
 ---
 
 # Compatibility Report
-- Name of the game with compatibility issues:
-- Steam AppID of the game:
+- Name of the game/application with compatibility issues:
+- Steam AppID / launcher / store:
+- Game or launcher version, if known:
 
 ## System Information
 - GPU: <!-- e.g. RX 580 or GTX 970 -->
 - Video driver version: <!-- e.g. Mesa 18.2 or nvidia 396.54 -->
 - Kernel version: <!-- e.g. 4.17 -->
+- Session / compositor: <!-- e.g. native Wayland on KWin, X11, XWayland, gamescope -->
 - Link to full system information report as [Gist](https://gist.github.com/):
-- Proton version:
+- Proton-CachyOS / Wineland version:
 
 ## I confirm:
 - [ ] that I haven't found an existing compatibility report for this game.
 - [ ] that I have checked whether there are updates for my system available.
+- [ ] that I tested vanilla Proton-CachyOS without Wineland, or explain below why I could not.
 
 <!-- Please add `PROTON_LOG=1 %command%` to the game's launch options and
 attach the generated $HOME/steam-$APPID.log to this issue report as a file.
+For Wineland-specific visual, fullscreen, Wayland, or rendering issues, a more useful log is:
+`PROTON_LOG=1 DXVK_LOG_LEVEL=info VKD3D_DEBUG=info WINEDEBUG=+timestamp,+pid,+tid,+system,+win,+event,+waylanddrv,+vulkan,+dxgi %command%`
 (Proton logs compress well if needed.)-->
 
 ## Symptoms <!-- What's the problem? -->
 
+
+## Comparison
+- Result with Wineland:
+- Result with vanilla Proton-CachyOS without Wineland:
+- Result with official Proton / Proton Experimental, if tested:
 
 ## Reproduction
 
