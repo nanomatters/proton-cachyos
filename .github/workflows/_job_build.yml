@@ -113,6 +113,14 @@ jobs:
       run: |
         make redist
 
+    - name: Package ${{ inputs.name }}
+      shell: bash
+      run: |
+        mkdir -p "./build/${{ inputs.name }}"
+        rsync -a ./build/redist/ "./build/${{ inputs.name }}/"
+        tar -cJf "./build/${{ inputs.name }}.tar.xz" -C ./build "${{ inputs.name }}"
+        sha512sum "./build/${{ inputs.name }}.tar.xz" > "./build/${{ inputs.name }}.sha512sum"
+
     - name: Save cache
       id: ccache-save
       if: always()
