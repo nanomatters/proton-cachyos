@@ -4,8 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - 'cachyos_*_*/main'
-      - 'cachyos_*_*/dev'
+      - 'xxxwineland_20*'
 
 concurrency:
   group: ${{ github.ref_name }}
