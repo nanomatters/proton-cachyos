@@ -117,10 +117,9 @@ jobs:
       shell: bash
       run: |
         mkdir -p "./build/${{ inputs.name }}"
-        rsync -a --delete ./build/redist/ "./build/${{ inputs.name }}/"
+        rsync -a ./build/redist/ "./build/${{ inputs.name }}/"
         tar -cJf "./build/${{ inputs.name }}.tar.xz" -C ./build "${{ inputs.name }}"
         sha512sum "./build/${{ inputs.name }}.tar.xz" > "./build/${{ inputs.name }}.sha512sum"
-        rm -rf "./build/${{ inputs.name }}"
 
     - name: Save cache
       id: ccache-save
