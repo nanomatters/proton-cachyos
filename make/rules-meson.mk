@@ -22,8 +22,8 @@ pkgconfig = '$$$$PKG_CONFIG'
 
 [properties]
 needs_exe_wrapper = true
-c_args = [$$(call list-quote,$$($(2)_$(3)_INCFLAGS) $$($(2)_CFLAGS) $$($(3)_CFLAGS) $$(CFLAGS))]
-cpp_args = [$$(call list-quote,$$($(2)_$(3)_INCFLAGS) $$($(2)_CFLAGS) $$($(3)_CFLAGS) $$(CFLAGS))]
+c_args = [$$(call list-quote,$$($(2)_$(3)_INCFLAGS) $$($(2)_CFLAGS) $$($(3)_CFLAGS) $$(CFLAGS) $$($(2)_$(3)_CFLAGS))]
+cpp_args = [$$(call list-quote,$$($(2)_$(3)_INCFLAGS) $$($(2)_CFLAGS) $$($(3)_CFLAGS) $$(CFLAGS) $$($(2)_$(3)_CFLAGS))]
 link_args = [$$(call list-quote,$$($(2)_$(3)-$(4)_LIBFLAGS) $$($(2)_$(3)_LIBFLAGS) $$($(2)_LDFLAGS) $$($(3)_LDFLAGS) $$(LDFLAGS))]
 pkg_config_libdir = '$$$$PKG_CONFIG_LIBDIR'
 
@@ -39,14 +39,14 @@ export $(2)_$(3)_MESON_CROSS
 
 $$($(2)_SRC)/meson.build: | $$(OBJ)/.$(1)-post-source
 
-$$(OBJ)/.$(1)-$(3)-configure: $$($(2)_SRC)/meson.build
+$$(OBJ)/.$(1)-$(3)-configure: $$($(2)_SRC)/meson.build meson-source
 	@echo ":: configuring $(1)-$(3)..." >&2
 	rm -rf "$$($(2)_$(3)_OBJ)/meson-private/coredata.dat"
 
 	echo "$$$$$(2)_$(3)_MESON_CROSS" | env $$($(2)_$(3)_ENV) sh >"$$($(2)_$(3)_OBJ)/cross.txt"
 
 	env $$($(2)_$(3)_ENV) \
-	meson "$$($(2)_$(3)_OBJ)" "$$($(2)_SRC)" \
+	$$(OBJ)/src-meson/meson.py "$$($(2)_$(3)_OBJ)" "$$($(2)_SRC)" \
 	      --prefix="$$($(2)_$(3)_DST)" \
 	      --libdir="lib/$$($(3)-$(4)_LIBDIR)" \
 	      --buildtype=plain \
