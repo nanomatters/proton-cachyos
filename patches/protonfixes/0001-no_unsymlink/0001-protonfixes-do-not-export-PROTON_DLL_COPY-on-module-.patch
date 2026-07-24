@@ -1,0 +1,307 @@
+From be9007ed928e7522e8a0264b3c9658aaa8f03a1e Mon Sep 17 00:00:00 2001
+From: Stelios Tsampas <loathingkernel@gmail.com>
+Date: Sat, 23 May 2026 23:23:10 +0300
+Subject: [PATCH 1/4] protonfixes: do not export `PROTON_DLL_COPY=*` on module
+ import
+
+`protonfixes` exports `PROTON_DLL_COPY=*` on module import to, which caused
+proton to copy all files from proton's default prefix instead of symlinking them.
+This causes the size of the prefix to explode, delays startup and
+unnecessarily amplified disk writes. The reason this is done though, as
+far back as I could find, was to allow various redist installers,
+including but likely not limited to `dotnet`, to work.
+
+This commit removes the export from the module import scope, and instead
+uses an early-stage fix directive to export the environment variable
+only for fixes that install a version of dotnet. The scope of the files
+`PROTON_DLL_COPY` copies instead of symlinking can be adjusted further
+at a later date.
+
+Presently I am not aware of any other redists that require this fix, but
+we can expand on it later on.
+---
+ __init__.py                       | 4 ----
+ gamefixes-steam/1112400.py        | 5 +++++
+ gamefixes-steam/1259970.py        | 5 +++++
+ gamefixes-steam/1695793.py        | 5 +++++
+ gamefixes-steam/1876280.py        | 5 +++++
+ gamefixes-steam/23460.py          | 4 ++++
+ gamefixes-steam/244210.py         | 5 +++++
+ gamefixes-steam/244850.py         | 5 +++++
+ gamefixes-steam/269330.py         | 5 +++++
+ gamefixes-steam/33390.py          | 5 +++++
+ gamefixes-steam/3669060.py        | 5 +++++
+ gamefixes-steam/3932890.py        | 4 ++++
+ gamefixes-umu/umu-aa2.py          | 5 +++++
+ gamefixes-umu/umu-pantheonrotf.py | 5 +++++
+ gamefixes-umu/umu-pkhex.py        | 5 +++++
+ 15 files changed, 68 insertions(+), 4 deletions(-)
+
+diff --git a/__init__.py b/__init__.py
+index a07e5f3..b68eb84 100644
+--- a/__init__.py
++++ b/__init__.py
+@@ -33,10 +33,6 @@ aarch64_lib_dir: str = (
+ )
+ 
+ 
+-# This is needed for protonfixes
+-os.environ['PROTON_DLL_COPY'] = '*'
+-
+-
+ def check_conditions() -> bool:
+     """Determine, if the actual game was executed and protonfixes isn't deactivated.
+ 
+diff --git a/gamefixes-steam/1112400.py b/gamefixes-steam/1112400.py
+index 0989756..40b9bf0 100755
+--- a/gamefixes-steam/1112400.py
++++ b/gamefixes-steam/1112400.py
+@@ -1,8 +1,13 @@
+ """Game fix for Project Torque"""
++import os
+ 
+ from protonfixes import util
+ 
+ 
++def early() -> None:
++    os.environ['PROTON_DLL_COPY'] = '*'
++
++
+ def main() -> None:
+     """Game needs dotnet35 to launch"""
+     """https://bugs.winehq.org/show_bug.cgi?id=57666"""
+diff --git a/gamefixes-steam/1259970.py b/gamefixes-steam/1259970.py
+index 2a5f98d..a11844b 100755
+--- a/gamefixes-steam/1259970.py
++++ b/gamefixes-steam/1259970.py
+@@ -1,8 +1,13 @@
+ """Game fix for Pes 2021"""
++import os
+ 
+ from protonfixes import util
+ 
+ 
++def early() -> None:
++    os.environ['PROTON_DLL_COPY'] = '*'
++
++
+ def main() -> None:
+     # Replace launcher with game exe in proton arguments
+     util.protontricks('vcrun2019')
+diff --git a/gamefixes-steam/1695793.py b/gamefixes-steam/1695793.py
+index b90867d..1f91059 100755
+--- a/gamefixes-steam/1695793.py
++++ b/gamefixes-steam/1695793.py
+@@ -2,10 +2,15 @@
+ Standalone and Sapien seem to work just fine without d3dcompiler_47 and msxml3, although might be required at some deeper level. I just playtested it.
+ - Oro, @orowith2os
+ """
++import os
+ 
+ from protonfixes import util
+ 
+ 
++def early() -> None:
++    os.environ['PROTON_DLL_COPY'] = '*'
++
++
+ def main() -> None:
+     util.protontricks('dotnet35')
+     util.protontricks('dotnet45')
+diff --git a/gamefixes-steam/1876280.py b/gamefixes-steam/1876280.py
+index f1bb809..a0abee3 100644
+--- a/gamefixes-steam/1876280.py
++++ b/gamefixes-steam/1876280.py
+@@ -1,8 +1,13 @@
+ """PAIcom"""
++import os
+ 
+ from protonfixes import util
+ 
+ 
++def early() -> None:
++    os.environ['PROTON_DLL_COPY'] = '*'
++
++
+ def main() -> None:
+     """Crashes unless dotnet48 is installed."""
+     util.protontricks('dotnet48')
+diff --git a/gamefixes-steam/23460.py b/gamefixes-steam/23460.py
+index c017ec2..c2af892 100644
+--- a/gamefixes-steam/23460.py
++++ b/gamefixes-steam/23460.py
+@@ -6,6 +6,10 @@ Videos still don't work.
+ from protonfixes import util
+ 
+ 
++def early() -> None:
++    os.environ['PROTON_DLL_COPY'] = '*'
++
++
+ def main() -> None:
+     util.set_environment('PROTON_NO_XALIA', '1')
+     util.protontricks('dotnet35sp1')
+diff --git a/gamefixes-steam/244210.py b/gamefixes-steam/244210.py
+index bbed50c..89f5244 100755
+--- a/gamefixes-steam/244210.py
++++ b/gamefixes-steam/244210.py
+@@ -1,8 +1,13 @@
+ """Game fix for Assetto Corsa"""
++import os
+ 
+ from protonfixes import util
+ 
+ 
++def early() -> None:
++    os.environ['PROTON_DLL_COPY'] = '*'
++
++
+ def main() -> None:
+     """Fixes default launcher and ACM."""
+     util.protontricks('dotnet48')
+diff --git a/gamefixes-steam/244850.py b/gamefixes-steam/244850.py
+index 6275c8f..e7f8538 100755
+--- a/gamefixes-steam/244850.py
++++ b/gamefixes-steam/244850.py
+@@ -1,8 +1,13 @@
+ """Game fix for Space Engineers"""
++import os
+ 
+ from protonfixes import util
+ 
+ 
++def early() -> None:
++    os.environ['PROTON_DLL_COPY'] = '*'
++
++
+ def main() -> None:
+     util.protontricks('xaudio29')
+     util.protontricks('dotnet48')
+diff --git a/gamefixes-steam/269330.py b/gamefixes-steam/269330.py
+index 0dcb6b3..212bec3 100755
+--- a/gamefixes-steam/269330.py
++++ b/gamefixes-steam/269330.py
+@@ -1,8 +1,13 @@
+ """Game fix for Chronology"""
++import os
+ 
+ from protonfixes import util
+ 
+ 
++def early() -> None:
++    os.environ['PROTON_DLL_COPY'] = '*'
++
++
+ def main() -> None:
+     """Add dotnet"""
+     util.protontricks('dotnet20')
+diff --git a/gamefixes-steam/33390.py b/gamefixes-steam/33390.py
+index 6e9a60a..5af1dcf 100644
+--- a/gamefixes-steam/33390.py
++++ b/gamefixes-steam/33390.py
+@@ -1,8 +1,13 @@
+ """Zeit²"""
++import os
+ 
+ from protonfixes import util
+ 
+ 
++def early() -> None:
++    os.environ['PROTON_DLL_COPY'] = '*'
++
++
+ def main() -> None:
+     """Needs dotnet48 installed to avoid crashing."""
+     util.protontricks('dotnet48')
+diff --git a/gamefixes-steam/3669060.py b/gamefixes-steam/3669060.py
+index 2747360..978eb4e 100755
+--- a/gamefixes-steam/3669060.py
++++ b/gamefixes-steam/3669060.py
+@@ -1,8 +1,13 @@
+ """Game fix for Blade & Soul NEO"""
++import os
+ 
+ from protonfixes import util
+ 
+ 
++def early() -> None:
++    os.environ['PROTON_DLL_COPY'] = '*'
++
++
+ def main() -> None:
+     util.protontricks('hidewineexports=enable')
+     util.protontricks('dotnet48')
+diff --git a/gamefixes-steam/3932890.py b/gamefixes-steam/3932890.py
+index 605c49a..188f669 100644
+--- a/gamefixes-steam/3932890.py
++++ b/gamefixes-steam/3932890.py
+@@ -8,6 +8,10 @@ import shutil
+ from protonfixes import util
+ 
+ 
++def early() -> None:
++    os.environ['PROTON_DLL_COPY'] = '*'
++
++
+ def main() -> None:
+     util.install_battleye_runtime()
+     util.protontricks('dotnet48')
+diff --git a/gamefixes-umu/umu-aa2.py b/gamefixes-umu/umu-aa2.py
+index 57ee4b9..05672c0 100644
+--- a/gamefixes-umu/umu-aa2.py
++++ b/gamefixes-umu/umu-aa2.py
+@@ -1,10 +1,15 @@
+ """Application fix Artificial Academy 2
+ Launcher game settings: Disable wine3d, enable win10fix
+ """
++import os
+ 
+ from protonfixes import util
+ 
+ 
++def early() -> None:
++    os.environ['PROTON_DLL_COPY'] = '*'
++
++
+ def main() -> None:
+     """Installs fakejapanese_ipamona vcrun2015 dotnetcore3"""
+     util.protontricks('vcrun2015')
+diff --git a/gamefixes-umu/umu-pantheonrotf.py b/gamefixes-umu/umu-pantheonrotf.py
+index 6fb2bbe..a12f7fc 100644
+--- a/gamefixes-umu/umu-pantheonrotf.py
++++ b/gamefixes-umu/umu-pantheonrotf.py
+@@ -1,8 +1,13 @@
+ """Game fix for Pantheon: Rise of the Fallen"""
++import os
+ 
+ from protonfixes import util
+ 
+ 
++def early() -> None:
++    os.environ['PROTON_DLL_COPY'] = '*'
++
++
+ def main() -> None:
+     # Standalone launcher fix
+     util.protontricks('dotnet48')
+diff --git a/gamefixes-umu/umu-pkhex.py b/gamefixes-umu/umu-pkhex.py
+index 40a57e7..ec62d84 100644
+--- a/gamefixes-umu/umu-pkhex.py
++++ b/gamefixes-umu/umu-pkhex.py
+@@ -1,8 +1,13 @@
+ """PKHeX"""
++import os
+ 
+ from protonfixes import util
+ 
+ 
++def early() -> None:
++    os.environ['PROTON_DLL_COPY'] = '*'
++
++
+ def main() -> None:
+     # Needs dotnet, project bumps dotnet version every couple pkhex versions
+     util.protontricks('dotnetdesktop9')
+-- 
+2.54.0
+
