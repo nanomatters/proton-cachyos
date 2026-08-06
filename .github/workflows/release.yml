@@ -47,6 +47,7 @@ jobs:
       configure: ${{ matrix.configure }}
       runner: ${{ matrix.runner != '' && matrix.runner || 'ubuntu-24.04' }}
       continue: false
+      ref: ${{ inputs.tag || github.ref }}
 
   release:
     name: Release
@@ -57,6 +58,7 @@ jobs:
       with:
         fetch-depth: 0
         fetch-tags: true
+        ref: ${{ inputs.tag || github.ref }}
     - name: Title
       id: title
       shell: bash
@@ -66,6 +68,7 @@ jobs:
         python -c "v='${tag}'.split('-');print('title='+'-'.join([v[1],v[2]]))" >> "$GITHUB_OUTPUT"
     - name: Create
       id: create
+      if: github.event_name != 'release'
       shell: bash
       run: >-
         gh

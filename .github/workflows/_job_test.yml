@@ -28,7 +28,7 @@ jobs:
           sudo apt-get install bubblewrap apparmor apparmor-profiles apparmor-profiles-extra
           sudo apparmor_parser /usr/share/apparmor/extra-profiles/bwrap-userns-restrict
 
-      - name: Download ${{ matrix.file }} artifact
+      - name: Download ${{ inputs.name }}.tar.xz artifact
         uses: actions/download-artifact@v8
         with:
           name: ${{ inputs.name }}.tar.xz

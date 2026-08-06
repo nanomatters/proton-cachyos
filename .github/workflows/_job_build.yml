@@ -25,6 +25,10 @@ on:
       continue:
         required: true
         type: boolean
+      ref:
+        required: false
+        type: string
+        default: ''
 
 jobs:
   proton:
@@ -75,6 +79,7 @@ jobs:
         fetch-depth: 0
         fetch-tags: true
         submodules: false
+        ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
     - name: Patch
       run: |
