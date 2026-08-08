@@ -1083,23 +1083,31 @@ class CompatData:
                 #copy steam files into place
                 steam_dir = "drive_c/Program Files (x86)/Steam/"
                 makedirs(self.prefix_dir + steam_dir)
-                filestocopy = [("steamclient.dll", "steamclient.dll"),
-                               ("steamclient64.dll", "steamclient64.dll"),
-                               ("GameOverlayRenderer64.dll", "GameOverlayRenderer64.dll"),
-                               ("SteamService.exe", "steam.exe"),
-                               ("Steam.dll", "Steam.dll")]
-                for (src,tgt) in filestocopy:
-                    srcfile = steamdir + '/legacycompat/' + src
-                    if os.path.isfile(srcfile):
-                        try_copy(srcfile, steam_dir + tgt, prefix=self.prefix_dir, track_file=tracked_files, link_debug=True)
+                # With PROTON_NATIVE_STEAM the prefix holds a real Windows Steam
+                # install, and these copies would overwrite it. In particular
+                # SteamService.exe is copied over steam.exe, replacing the genuine
+                # bootstrap with a binary that only prints a usage message and
+                # exits 1 -- on every launch, so the install never survives.
+                if os.environ.get("PROTON_NATIVE_STEAM", "0") == "1":
+                    log("PROTON_NATIVE_STEAM: keeping the existing Steam install in the prefix")
+                else:
+                    filestocopy = [("steamclient.dll", "steamclient.dll"),
+                                   ("steamclient64.dll", "steamclient64.dll"),
+                                   ("GameOverlayRenderer64.dll", "GameOverlayRenderer64.dll"),
+                                   ("SteamService.exe", "steam.exe"),
+                                   ("Steam.dll", "Steam.dll")]
+                    for (src,tgt) in filestocopy:
+                        srcfile = steamdir + '/legacycompat/' + src
+                        if os.path.isfile(srcfile):
+                            try_copy(srcfile, steam_dir + tgt, prefix=self.prefix_dir, track_file=tracked_files, link_debug=True)
 
-                filestocopy = [("steamclient64.dll", "steamclient64.dll"),
-                               ("GameOverlayRenderer.dll", "GameOverlayRenderer.dll"),
-                               ("GameOverlayRenderer64.dll", "GameOverlayRenderer64.dll")]
-                for (src,tgt) in filestocopy:
-                    srcfile = g_proton.path(src)
-                    if os.path.isfile(srcfile):
-                        try_copy(srcfile, steam_dir + tgt, prefix=self.prefix_dir, track_file=tracked_files, link_debug=True)
+                    filestocopy = [("steamclient64.dll", "steamclient64.dll"),
+                                   ("GameOverlayRenderer.dll", "GameOverlayRenderer.dll"),
+                                   ("GameOverlayRenderer64.dll", "GameOverlayRenderer64.dll")]
+                    for (src,tgt) in filestocopy:
+                        srcfile = g_proton.path(src)
+                        if os.path.isfile(srcfile):
+                            try_copy(srcfile, steam_dir + tgt, prefix=self.prefix_dir, track_file=tracked_files, link_debug=True)
 
                 # CW Bug 19152. IL-2 Sturmovik: Cliffs of Dover Blitz Edition needs user's localconfig.vdf
                 if os.environ.get("SteamGameId", 0) == "754530":
@@ -2354,7 +2362,12 @@ class Session:
         return subprocess.call(args, env=local_env, stderr=self.log_file, stdout=self.log_file)
 
     def run(self):
-        if shutil.which('steam-runtime-launcher-interface-0') is not None:
+        # The launcher-interface adverb registers the launched process with the
+        # running Steam client. When the thing being launched is itself a Steam
+        # client, that hands it off to the native one and it exits.
+        if os.environ.get("PROTON_NATIVE_STEAM", "0") == "1":
+            adverb = []
+        elif shutil.which('steam-runtime-launcher-interface-0') is not None:
             adverb = ['steam-runtime-launcher-interface-0', 'proton']
         else:
             adverb = []
@@ -2395,7 +2408,13 @@ class Session:
         else:
             if "UMU_ID" in os.environ:
                 append_to_env_str(self.env, "WINEDLLOVERRIDES", "lsteamclient=d", ";")
-            if g_proton.host_pe_arch == "x86_64-windows":
+            # The builtin stub forwards to the native Steam client and exits,
+            # which starts a second Steam instead of running the real Windows
+            # steam.exe. Invoke wine directly so the requested binary runs.
+            if os.environ.get("PROTON_NATIVE_STEAM", "0") == "1":
+                log("PROTON_NATIVE_STEAM: bypassing the builtin steam.exe stub")
+                argv = [g_proton.wine_bin]
+            elif g_proton.host_pe_arch == "x86_64-windows":
                 #run with winepreloader directly to avoid restart through start.exe
                 self.env["WINELOADERNOEXEC"] = "1"
                 argv = [g_proton.lib_dir + "/wine/x86_64-unix/wine-preloader", g_proton.lib_dir + "/wine/x86_64-unix/wine", "c:\\windows\\system32\\steam.exe"]
