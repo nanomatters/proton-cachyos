@@ -1,344 +1,161 @@
-Introduction
-------------
+![Proton Wineland](wineland-banner.png)
 
-**Proton** is a tool for use with the Steam client which allows games which are
-exclusive to Windows to run on the Linux operating system. It uses Wine to
-facilitate this.
+What is Proton Wineland?
+-------------------------
 
-**Most users should use Proton provided by the Steam Client itself.** See
-[this Steam Community post][steam-play-introduction] for more details.
+Proton Wineland is an effort to solve Linux gaming problems through complete,
+high-quality solutions rather than accumulating game-specific hacks and
+workarounds. Its goal is to address issues that are genuinely solvable when the
+necessary time and care are invested.
 
-The source code is provided to enable advanced users the ability to alter
-Proton. For example, some users may wish to use a different version of Wine
-with a particular title.
+The project began with the lack of robust Wayland support. Since then, it has
+grown beyond launchers to address broader compatibility, rendering, input, and
+media issues across games and applications.
 
-**The changelog** is available on [our wiki][changelog].
+While upstream compatibility was an early consideration, it should not limit
+what the project can achieve. Proton Wineland's focus is the quality of the
+solution and the experience it delivers to Linux gamers.
 
-[steam-play-introduction]: https://steamcommunity.com/games/221410/announcements/detail/1696055855739350561
-[changelog]: https://github.com/ValveSoftware/Proton/wiki/Changelog
 
+What does Proton Wineland offer over other Proton versions?
+-----------------------------------------------------------
 
-Obtaining Proton sources
-------------------------
+Proton Wineland is not intended to change how every game runs. Its advantages
+are most noticeable when a game or launcher runs into Wayland-specific problems
+that other Proton versions may work around only partially.
 
-Acquire Proton's source by cloning <https://github.com/ValveSoftware/Proton>
-and checking out the branch you desire.
+It can provide:
 
-You can clone the latest Proton to your system with this command:
+- More reliable Windows game launchers, including Chromium and CEF-based
+  applications such as Battle.net, Ubisoft Connect, Rockstar Games Launcher,
+  and the native Windows Steam client.
 
-```bash
-git clone --recurse-submodules https://github.com/ValveSoftware/Proton.git proton
-```
+- Better fullscreen, borderless-window, minimise, maximise, restore, alt-tab,
+  and monitor-switching behaviour, particularly in multi-monitor and
+  mixed-scaling setups.
 
-Be sure to update submodules when switching between branches:
+- Correct rendering for overlays, popups, login windows, and other content
+  created by a separate Windows process from the visible game window.
 
-```bash
-git checkout experimental_6.3
-git submodule update --init --recursive
-```
+- Improved video and media playback compatibility in applications that use
+  Windows Media Foundation.
 
-If you want to change any subcomponent, now is the time to do so. For
-example, if you wish to make changes to Wine, you would apply them to the
-`wine/` directory.
+- More accurate mouse and keyboard behaviour when a game is fullscreen, scaled,
+  or moved between monitors.
 
+- Better integration with Wayland desktops, including Windows tray icons,
+  application menus, and compatible HDR and colour-management paths.
 
-Building Proton
----------------
+These improvements work automatically where they are applicable. They are
+intended to solve underlying compatibility problems rather than require
+per-game environment variables or launch-option workarounds.
 
-Most of Proton builds inside the Proton SDK container with very few
-dependencies on the host side.
+These benefits depend on the game, GPU driver, compositor, and desktop setup.
+A game that already works well with another Proton version may not show a
+visible difference.
 
-## Preparing the build environment
 
-You need either a Docker or a Podman setup. We highly recommend [the rootless
-Podman setup][rootless-podman]. Please refer to your distribution's
-documentation for setup instructions (e.g. Arch [Podman][arch-podman] /
-[Docker][arch-docker], Debian [Podman][debian-podman] /
-[Docker][debian-docker]).
-
-[rootless-podman]: https://github.com/containers/podman/blob/main/docs/tutorials/rootless_tutorial.md
-[arch-podman]: https://wiki.archlinux.org/title/Podman
-[arch-docker]: https://wiki.archlinux.org/title/Docker
-[debian-podman]: https://wiki.debian.org/Podman
-[debian-docker]: https://wiki.debian.org/Docker
-
-
-## The Easy Way
-
-We provide a top-level Makefile which will execute most of the build commands
-for you.
-
-After checking out the repository and updating its submodules, assuming that
-you have a working Docker or Podman setup, you can build and install Proton
-with a simple:
-
-```bash
-make install
-```
-
-If your build system is missing dependencies, it will fail quickly with a clear
-error message.
-
-After the build finishes, you may need to restart the Steam client to see the
-new Proton tool. The tool's name in the Steam client will be based on the
-currently checked out branch of Proton. You can override this name using the
-`build_name` variable.
-
-See `make help` for other build targets and options.
-
-
-
-## Manual building
-
-### Configuring the build
-
-```bash
-mkdir ../build && cd ../build
-../proton/configure.sh --enable-ccache --build-name=my_build
-```
-
-Running `configure.sh` will create a `Makefile` allowing you to build Proton.
-The scripts checks if containers are functional and prompt you if any
-host-side dependencies are missing. You should run the command from a
-directory created specifically for your build.
-
-The configuration script tries to discover a working Docker or Podman setup
-to use, but you can force a compatible engine with
-`--container-engine=<executable_name>`.
-
-You can enable ccache with `--enable-cache` flag. This will mount your
-`$CCACHE_DIR` or `$HOME/.ccache` inside the container.
-
-`--proton-sdk-image=registry.gitlab.steamos.cloud/proton/soldier/sdk:<version>`
-can be used to build with a custom version of the Proton SDK images.
-
-Check `--help` for other configuration options.
-
-NOTE: If **SELinux** is in use, the Proton build container may fail to access
-your user's files. This is caused by [SELinux's filesystem
-labels][selinux-labels]. You may pass the `--relabel-volumes` switch to
-configure to cause the [container engine to relabel its
-bind-mounts][bind-mounts] and allow access to those files from within the
-container. This can be dangerous when used with system directories. Proceed
-with caution and refer your container engine's manual.
-
-[selinux-labels]: https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/6/html/security-enhanced_linux/sect-security-enhanced_linux-working_with_selinux-selinux_contexts_labeling_files
-[bind-mounts]: https://docs.docker.com/storage/bind-mounts/
-
-
-### Building
-
-```
-make
-```
-
-**Important make targets:**
-
-`make install` - install Proton into your user's Steam directory, see the [install Proton
-locally](#install-proton-locally) section for details.
-
-`make redist` - create a redistribute build (`redist/`) that can be copied to
-`~/.steam/root/compatibilitytools.d/`.
-
-`make deploy` - create a deployment build (`deploy/`). This is what we use to
-deploy Proton to Steam users via Steamworks.
-
-`make module=<module> module` - build both 32- and 64-bit versions of the
-specified wine module. This allows rapid iteration on one module. This target
-is only useful after building Proton.
-
-`make dxvk` / `make vkd3d-proton` - rebuild DXVK / vkd3d-proton.
-
-
-### Figuring Out What Failed To Build
-
-Proton build system invokes builds of many subprojects in parallel. If one
-subprojects fails there can be thousands of lines printed by other sub-builds
-before the top level exits. This can make the real reason of the build failing
-hard to find.
-
-Appending `2>&1 | tee build.log` will log the full build output to a `build.log`
-file. Searching that file from the bottom up for occurrences of `Error` should
-point to the right area. E.g.:
-
-```
-make 2>&1 | tee build.log
-grep -n '] Error [0-9]' build.log
-```
-
-```
-11220:make: *** [../Makefile.in:465: /builds/proton/proton/build-dir/.kaldi-i386-configure] Error 1
-12427:make: *** [../Makefile.in:1323: deploy] Error 2
-```
-
-
-### Debug Builds
-
-To prevent symbol stripping add `UNSTRIPPED_BUILD=1` to the `make`
-invocation. This should be used only with a clean build directory.
-
-E.g.:
-
-```
-mkdir ../debug-proton-build && cd ../debug-proton-build
-../proton/configure.sh --enable-ccache --build-name=debug_build
-make UNSTRIPPED_BUILD=1 install
-```
-
-
-### ARM64 Builds
-
-You need an ARM64 build machine and pass `--target-arch=arm64` to `configure.sh`.
-
-It's not possible to use the resulting builds in x86 Steam running via FEX.
-
-
-Install Proton locally
+What does it improve?
 ----------------------
 
-Steam ships with several versions of Proton, which games will use by default or
-that you can select in Steam Settings' Steam Play page. Steam also supports
-running games with local builds of Proton, which you can install on your
-machine.
-
-To install a local build of Proton into Steam, make a new directory in
-`~/.steam/root/compatibilitytools.d/` with a tool name of your choosing and
-place the directory containing your redistributable build under that path.
-
-The `make install` target will perform this task for you, installing the
-Proton build into the Steam folder for the current user. You will have to
-restart the Steam client for it to pick up on a new tool.
-
-A correct local tool installation should look similar to this:
-
-```
-compatibilitytools.d/my_proton/
-├── compatibilitytool.vdf
-├── filelock.py
-├── LICENSE
-├── proton
-├── proton_dist.tar
-├── toolmanifest.vdf
-├── user_settings.sample.py
-└── version
-```
-
-To enable your local build in Steam, go to the Steam Play section of the
-Settings window. If the build was correctly installed, you should see
-"proton-localbuild" in the drop-down list of compatibility tools.
-
-Each component of this software is used under the terms of their licenses.
-See the `LICENSE` files here, as well as the `LICENSE`, `COPYING`, etc files
-in each submodule and directory for details. If you distribute a built
-version of Proton to other users, you must adhere to the terms of these
-licenses.
+Proton Wineland aims to make Windows games and their supporting applications
+feel at home on a Wayland desktop. It improves launcher compatibility,
+fullscreen behaviour, and common window actions such as minimising, maximising,
+restoring, and moving games between monitors. It also works to improve video
+and media playback, and the rendering of overlays or companion windows,
+including cases where those windows are created by a separate process.
 
 
-Debugging
----------
+How do I activate the Wayland features?
+----------------------------------------
 
-Proton builds have their symbols stripped by default. You can switch to
-"debug" beta branch in Steam (search for Proton in your library,
-Properties... -> BETAS -> select "debug") or build without stripping (see
-[Debug Builds section](#debug-builds)).
-
-The symbols are provided through the accompanying `.debug` files which may
-need to be explicitly loaded by the debugging tools. For GDB there's a helper
-script `wine/tools/gdbinit.py` (source it) that provides `load-symbol-files`
-(or `lsf` for short) command which loads the symbols for all the mapped files.
-
-For tips on debugging see [docs/DEBUGGING-LINUX.md](docs/DEBUGGING-LINUX.md)
-and [docs/DEBUGGING-WINDOWS.md](docs/DEBUGGING-WINDOWS.md).
+You do not need to enable anything manually. Proton Wineland enables Wayland by
+default by setting `PROTON_ENABLE_WAYLAND=1`, so games and supporting
+applications run through Wayland automatically.
 
 
-`compile_commands.json`
------------------------
+What does it not promise?
+-------------------------
 
-For use with [clangd](https://clangd.llvm.org/) LSP server and similar tooling.
-
-Projects built using cmake or meson (e.g. vkd3d-proton) automatically come with
-`compile_commands.json`. Wine also generates the file on its own via `makedep`.
-
-Proton's build system collects all the `compile_commands.json` files in a build
-subdirectory named `compile_commands/`.
-
-The paths are translated to point to the real source (i.e. not the rsynced
-copy). It still may depend on build directory for things like auto-generated
-`config.h` though and for wine it may be beneficial to run `tools/make_requests`
-in you source directories as those changes are not committed.
-
-You can then configure your editor to use that file for clangd in a few ways:
-
-1) directly - some editors/plugins allow you to specify the path to `compile_commands.json`
-2) via `.clangd` file, e.g.
-```bash
-cd src/proton/wine/
-cat > .clangd <<EOF
-CompileFlags:
-  CompilationDatabase: ../build/current-dev/compile_commands/wine-x86_64/
-EOF
-```
-3) by symlinking:
-```bash
-ln -s ../build/current-dev/compile_commands/wine-x86_64/compile_commands.json .
-```
+No Proton version can guarantee that every game will work perfectly. Not every
+problem originates in Proton or can be solved within Wine. Issues may also come
+from the game itself, graphics drivers, the desktop compositor, or another part
+of the Linux graphics stack.
 
 
-Runtime Config Options
-----------------------
+Is it experimental?
+-------------------
 
-Proton can be tuned at runtime to help certain games run. The Steam client sets
-some options for known games using the `STEAM_COMPAT_CONFIG` variable.
-You can override these options using the environment variables described below.
+Yes, but "experimental" does not mean inherently unstable. Proton Wineland
+takes a different approach from the usual pattern of relying on environment
+variables, command-line parameters, and game-specific Wine workarounds to make
+individual titles run.
 
-The best way to set these environment overrides for all games is by renaming
-`user_settings.sample.py` to `user_settings.py` and modifying it appropriately.
-This file is located in the Proton installation directory in your Steam library
-(often `~/.steam/steam/steamapps/common/Proton #.#`).
+Where possible, it aims to solve the underlying problem in a durable way. This
+does not mean the project is bug-free, including in newly added areas, but its
+experimental nature does not come with an intended trade-off of reduced
+stability. In some situations, it may even be more stable than other Proton
+versions.
 
-If you want to change the runtime configuration for a specific game, you can
-use the `Set Launch Options` setting in the game's `Properties` dialog in the
-Steam client. Set the variable, followed by `%command%`. For example, input
-"`PROTON_USE_WINED3D=1 %command%`" to use the OpenGL-based wined3d renderer
-instead of the Vulkan-based DXVK renderer.
 
-To enable an option, set the variable to a non-`0` value.  To disable an
-option, set the variable to `0`. To use Steam's default configuration, do
-not specify the variable at all.
+What is the relationship to CachyOS Proton?
+-------------------------------------------
 
-All of the below are runtime options. They do not effect permanent changes to
-the Wine prefix. Removing the option will revert to the previous behavior.
+Proton Wineland is currently based on CachyOS Proton. Proton is made up of many
+components, with Wine being only one of them. Most Proton Wineland changes are
+made to Wine, while CachyOS Proton provides the surrounding build, integration,
+and runtime framework.
 
-| Compat config string  | Environment Variable               | Description  |
-| :-------------------- | :--------------------------------- | :----------- |
-|                       | `PROTON_LOG`                       | Convenience method for dumping a useful debug log to `$PROTON_LOG_DIR/steam-$APPID.log`. Set to `1` to enable default logging, or set to a string to be appended to the default `WINEDEBUG` channels. |
-|                       | `PROTON_LOG_DIR`                   | Output log files into the directory specified. Defaults to your home directory. |
-|                       | `PROTON_WAIT_ATTACH`               | Wait for a debugger to attach to steam.exe before launching the game process. To attach to the game process at startup, debuggers should be set to follow child processes. |
-|                       | `PROTON_CRASH_REPORT_DIR`          | Write crash logs into this directory. Does not clean up old logs, so may eat all your disk space eventually. |
-| `wined3d`             | `PROTON_USE_WINED3D`               | Use OpenGL-based wined3d instead of Vulkan-based DXVK for d3d11, d3d10, and d3d9. |
-| `nod3d11`             | `PROTON_NO_D3D11`                  | Disable `d3d11.dll`, for d3d11 games which can fall back to and run better with d3d9. |
-| `nod3d10`             | `PROTON_NO_D3D10`                  | Disable `d3d10.dll` and `dxgi.dll`, for d3d10 games which can fall back to and run better with d3d9. |
-| `dxvkd3d8`            | `PROTON_DXVK_D3D8`                 | Use DXVK's `d3d8.dll`. |
-| `noesync`             | `PROTON_NO_ESYNC`                  | Do not use eventfd-based in-process synchronization primitives. |
-| `nofsync`             | `PROTON_NO_FSYNC`                  | Do not use futex-based in-process synchronization primitives. (Automatically disabled on systems with no `FUTEX_WAIT_MULTIPLE` support.) |
-|                       | `HOST_LC_ALL`                      | Set value to a locale to override all other system locale settings for a game.  This variable should be used instead of `LC_ALL`. |
-| `disablenvapi`        | `PROTON_DISABLE_NVAPI`             | Disable NVIDIA's NVAPI GPU support library. |
-| `nativevulkanloader`  |                                    | Use the Vulkan loader shipped with the game instead of Proton's built-in Vulkan loader. This breaks VR support, but is required by a few games. |
-| `forcelgadd`          | `PROTON_FORCE_LARGE_ADDRESS_AWARE` | Force Wine to enable the LARGE_ADDRESS_AWARE flag for all executables. Enabled by default. |
-| `heapdelayfree`       | `PROTON_HEAP_DELAY_FREE`           | Delay freeing some memory, to work around application use-after-free bugs. |
-| `gamedrive`           | `PROTON_SET_GAME_DRIVE`            | Create an S: drive which points to the Steam Library which contains the game. |
-| `noforcelgadd`        |                                    | Disable forcelgadd. If both this and `forcelgadd` are set, enabled wins. |
-| `oldglstr`            | `PROTON_OLD_GL_STRING`             | Set some driver overrides to limit the length of the GL extension string, for old games that crash on very long extension strings. |
-| `vkd3dfl12`           |                                    | Force the Direct3D 12 feature level to 12, regardless of driver support. |
-| `vkd3dbindlesstb`     |                                    | Put `force_bindless_texel_buffer` into `VKD3D_CONFIG`. |
-| `nomfdxgiman`         | `WINE_DO_NOT_CREATE_DXGI_DEVICE_MANAGER` | Enable hack to work around video issues in some games due to incomplete IMFDXGIDeviceManager support. |
-| `noopwr`              | `WINE_DISABLE_VULKAN_OPWR`               | Enable hack to disable Vulkan other process window rendering which sometimes causes issues on Wayland due to blit being one frame behind. |
-| `hidenvgpu`           | `PROTON_HIDE_NVIDIA_GPU`           | Force Nvidia GPUs to always be reported as AMD GPUs. Some games require this if they depend on Windows-only Nvidia driver functionality. See also DXVK's nvapiHack config, which only affects reporting from Direct3D. |
-|                       | `WINE_FULLSCREEN_INTEGER_SCALING`  | Enable integer scaling mode, to give sharp pixels when upscaling. |
-| `cmdlineappend:`      |                                    | Append the string after the colon as an argument to the game command. May be specified more than once. Escape commas and backslashes with a backslash. |
-| `xalia` or `noxalia`  | `PROTON_USE_XALIA`                 | Enable Xalia, a program that can add a gamepad UI for some keyboard/mouse interfaces, or set to 0 to disable. The default is to enable it dynamically based on window contents. |
-| `fnad3d11`            | `FNA3D_FORCE_DRIVER=D3D11`         | Force FNA to use D3D11 for rendering. |
-| `seccomp`             | `PROTON_USE_SECCOMP`               | **Note: Obsoleted in Proton 5.13.** In older versions, enable seccomp-bpf filter to emulate native syscalls, required for some DRM protections to work. |
-| `d9vk`                | `PROTON_USE_D9VK`                  | **Note: Obsoleted in Proton 5.0.** In older versions, use Vulkan-based DXVK instead of OpenGL-based wined3d for d3d9. |
+Early on, Proton Wineland was regularly rebased onto the latest CachyOS
+branches. As its Wayland work expanded, rebasing the Wine component became
+increasingly difficult. Repeatedly resolving the growing number of conflicts
+began to destabilise the codebase, so Proton Wineland now maintains its Wine
+work independently and selectively cherry-picks compatible upstream and
+bleeding-edge changes.
 
-<!-- Target:  GitHub Flavor Markdown.  To test locally:  pandoc -f markdown_github -t html README.md  -->
+An early possibility was contributing the Wineland changes directly to CachyOS.
+As the project grew in scope and followed its own technical direction,
+independent development became the better fit. This gives Proton Wineland room
+to pursue broader solutions when they can improve the Proton experience.
+
+CachyOS has its own development priorities and established relationships with
+the Wine development process. Proton Wineland complements that work with an
+independent focus. I have great respect for the CachyOS maintainers and
+developers, and value their tremendous work.
+
+
+Can Proton Wineland be merged into other larger Proton projects?
+---------------------------------------------------------------
+
+I cannot speak for the plans of other projects. Proton Wineland is open source,
+and anyone is free to use or adapt parts of it. For example, GE-Proton has
+already adopted its Status Notifier Item support.
+
+Adopting the entire project would be more difficult because the changes span a
+broad part of Wine's Wayland, rendering, and compatibility stack. The
+cross-process rendering framework is already relatively mature, but taking it
+wholesale could make it harder for another project to integrate future upstream
+Wine changes.
+
+
+What about upstream Wine and Valve's Wine work?
+------------------------------------------------
+
+A full merge into upstream Wine or Valve's Wine work is currently unlikely. My
+understanding is that Wine is pursuing its own approach to Wayland
+cross-process rendering, which differs from Proton Wineland's design. I have
+not investigated the details of that work myself, so I do not want to speculate
+beyond that.
+
+The same is likely true for Valve's Wine work. Valve and upstream Wine have
+closely connected development efforts, with contributors working across both
+projects. Proton Wineland is therefore best understood as an independent
+project that can share ideas and individual improvements where appropriate,
+rather than something expected to be merged wholesale.
+
+
+Original Proton documentation
+-----------------------------
+
+The original Proton documentation, including build instructions, is available
+in [README_PROTON.md](README_PROTON.md).
