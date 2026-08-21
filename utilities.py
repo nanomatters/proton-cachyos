@@ -122,6 +122,13 @@ def add_vk_implicit_layer(method: Callable, env: dict, path: str) -> None:
         method(env, "VK_ADD_IMPLICIT_LAYER_PATH", path, ":")
 
 
+def add_vk_explicit_layer(method: Callable, env: dict, path: str) -> None:
+    if 'VK_LAYER_PATH' in env:
+        method(env, "VK_LAYER_PATH", path, ":")
+    else:
+        method(env, "VK_ADD_LAYER_PATH", path, ":")
+
+
 def is_driver_loaded(d):
     try:
         with open('/proc/modules') as f:
@@ -268,5 +275,6 @@ __all__ = [
     'get_vulkan_gpus',
     'log_environment',
     'is_driver_loaded',
+    'add_vk_explicit_layer',
     'add_vk_implicit_layer',
 ]

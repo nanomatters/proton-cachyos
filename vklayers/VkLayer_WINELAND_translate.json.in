@@ -1,0 +1,22 @@
+{
+    "file_format_version": "1.2.1",
+    "layer": {
+        "name": "@NAME@",
+        "type": "INSTANCE",
+        "library_path": "@LIBRARY@",
+        "library_arch": "@ARCH@",
+        "api_version": "1.3.207",
+        "implementation_version": "1",
+        "description": "Wineland Vulkan surface translation layer",
+        "instance_extensions": [
+            {
+                "name": "VK_KHR_xlib_surface",
+                "spec_version": "6",
+                "entrypoints": [
+                    "vkCreateXlibSurfaceKHR",
+                    "vkGetPhysicalDeviceXlibPresentationSupportKHR"
+                ]
+            }
+        ]
+    }
+}

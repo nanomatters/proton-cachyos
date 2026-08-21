@@ -3,11 +3,21 @@
 #include "unix_private.h"
 
 #include <winnls.h>
+#include <X11/Xatom.h>
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#include <linux/input-event-codes.h>
 #include <pthread.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <dlfcn.h>
+#include <algorithm>
 #include <unordered_map>
 #include <vector>
+
+#include "wine/wayland_external_input.h"
+#include "wine/wayland_vulkan_proxy.h"
 
 #if 0
 #pragma makedep unix
@@ -305,11 +315,586 @@ static void (*p_Steam_ReleaseThreadLocalMemory)( int );
 static bool (*p_Steam_IsKnownInterface)( const char * );
 static void (*p_Steam_NotifyMissingInterface)( int32_t, const char * );
 
+struct overlay_x11_funcs
+{
+    void *x11_module;
+    int (*flush)( Display * );
+    int (*sync)( Display *, Bool );
+    int (*put_back_event)( Display *, XEvent * );
+    Bool (*check_if_event)( Display *, XEvent *, Bool (*)( Display *, XEvent *, XPointer ), XPointer );
+};
+
+struct overlay_event_match
+{
+    Window window;
+    unsigned long serial;
+    int type;
+};
+
+struct overlay_input_completion
+{
+    bool done;
+    bool consumed;
+};
+
+struct overlay_input_queue_event
+{
+    struct wine_wayland_external_input_event event;
+    struct overlay_input_completion *completion;
+};
+
+static pthread_mutex_t overlay_input_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t overlay_input_cond = PTHREAD_COND_INITIALIZER;
+static bool overlay_input_active;
+static bool overlay_input_enabled;
+static bool overlay_input_running;
+static bool overlay_input_update_running;
+static int overlay_input_sync_pending;
+static const struct wine_wayland_external_input_api *overlay_input_api;
+static struct overlay_input_queue_event overlay_input_events[1024];
+static unsigned int overlay_input_head, overlay_input_count;
+static unsigned int overlay_input_active_serial, overlay_input_applied_serial;
+static unsigned int overlay_focus_serial;
+static bool overlay_focus_valid;
+
+static bool load_overlay_x11_funcs( struct overlay_x11_funcs *funcs )
+{
+    Dl_info info = {};
+
+    if (!(funcs->x11_module = dlopen( "libX11.so.6", RTLD_NOW | RTLD_LOCAL )))
+    {
+        fprintf( stderr, "lsteamclient: overlay input bridge could not open libX11: %s.\n", dlerror() );
+        return false;
+    }
+
+#define LOAD_FUNC(name, symbol) funcs->name = (decltype(funcs->name))dlsym( RTLD_DEFAULT, symbol )
+    LOAD_FUNC( flush, "XFlush" );
+    LOAD_FUNC( sync, "XSync" );
+    LOAD_FUNC( check_if_event, "XCheckIfEvent" );
+#undef LOAD_FUNC
+    funcs->put_back_event = (decltype(funcs->put_back_event))dlsym( funcs->x11_module, "_XPutBackEvent" );
+
+    if (!funcs->flush || !funcs->sync || !funcs->put_back_event || !funcs->check_if_event)
+    {
+        fprintf( stderr, "lsteamclient: overlay input bridge could not resolve the X11 entry points.\n" );
+        dlclose( funcs->x11_module );
+        funcs->x11_module = NULL;
+        return false;
+    }
+    if (!dladdr( (void *)funcs->check_if_event, &info ) ||
+        !info.dli_fname || !strstr( info.dli_fname, "gameoverlayrenderer.so" ))
+    {
+        fprintf( stderr, "lsteamclient: overlay input bridge resolved XCheckIfEvent outside "
+                         "gameoverlayrenderer.so (%s).\n", info.dli_fname ? info.dli_fname : "unknown" );
+        dlclose( funcs->x11_module );
+        funcs->x11_module = NULL;
+        return false;
+    }
+
+    return true;
+}
+
+static Bool match_overlay_event( Display *display, XEvent *event, XPointer arg )
+{
+    const struct overlay_event_match *match = (const struct overlay_event_match *)arg;
+
+    (void)display;
+    return event->xany.window == match->window && event->xany.serial == match->serial &&
+           event->type == match->type;
+}
+
+static bool send_overlay_event( const struct overlay_x11_funcs *funcs, Display *display,
+                                Window proxy, XEvent *event, unsigned long *serial )
+{
+    struct overlay_event_match match;
+    XEvent returned;
+
+    event->xany.display = display;
+    event->xany.window = proxy;
+    event->xany.send_event = False;
+    event->xany.serial = ++*serial;
+    match.window = proxy;
+    match.serial = event->xany.serial;
+    match.type = event->type;
+
+    funcs->put_back_event( display, event );
+    return !funcs->check_if_event( display, &returned, match_overlay_event, (XPointer)&match );
+}
+
+static bool send_overlay_focus_event( const struct overlay_x11_funcs *funcs, Display *display,
+                                      Window proxy, unsigned long *serial, bool focused )
+{
+    XEvent event = {};
+
+    event.type = focused ? FocusIn : FocusOut;
+    event.xfocus.mode = NotifyNormal;
+    event.xfocus.detail = NotifyNonlinear;
+    return send_overlay_event( funcs, display, proxy, &event, serial );
+}
+
+static int queue_overlay_input_event( void *context,
+                                      const struct wine_wayland_external_input_event *event )
+{
+    struct overlay_input_completion completion = {};
+    struct overlay_input_queue_event *queued;
+    unsigned int tail;
+    bool consume, wait;
+
+    (void)context;
+    if (event->size < sizeof(*event)) return 0;
+
+    pthread_mutex_lock( &overlay_input_mutex );
+    consume = overlay_input_active;
+    wait = event->type == WINE_WAYLAND_EXTERNAL_INPUT_KEY && !consume;
+
+    if (event->type == WINE_WAYLAND_EXTERNAL_INPUT_FOCUS)
+    {
+        if (overlay_focus_valid && (int32_t)(event->code - overlay_focus_serial) <= 0)
+        {
+            pthread_mutex_unlock( &overlay_input_mutex );
+            return 0;
+        }
+        overlay_focus_valid = true;
+        overlay_focus_serial = event->code;
+        consume = false;
+    }
+    else if (event->type != WINE_WAYLAND_EXTERNAL_INPUT_KEY && !consume)
+    {
+        pthread_mutex_unlock( &overlay_input_mutex );
+        return 0;
+    }
+
+    if (event->type == WINE_WAYLAND_EXTERNAL_INPUT_POINTER_MOTION && overlay_input_count)
+    {
+        tail = (overlay_input_head + overlay_input_count - 1) % ARRAY_SIZE(overlay_input_events);
+        queued = &overlay_input_events[tail];
+        if (queued->event.type == event->type)
+        {
+            if (event->flags & WINE_WAYLAND_EXTERNAL_INPUT_ABSOLUTE)
+            {
+                queued->event.flags |= WINE_WAYLAND_EXTERNAL_INPUT_ABSOLUTE;
+                queued->event.x = event->x;
+                queued->event.y = event->y;
+            }
+            if (event->flags & WINE_WAYLAND_EXTERNAL_INPUT_RELATIVE)
+            {
+                queued->event.flags |= WINE_WAYLAND_EXTERNAL_INPUT_RELATIVE;
+                queued->event.dx += event->dx;
+                queued->event.dy += event->dy;
+            }
+            queued->event.width = event->width;
+            queued->event.height = event->height;
+            pthread_cond_signal( &overlay_input_cond );
+            pthread_mutex_unlock( &overlay_input_mutex );
+            return consume;
+        }
+    }
+
+    if (overlay_input_count == ARRAY_SIZE(overlay_input_events))
+    {
+        pthread_mutex_unlock( &overlay_input_mutex );
+        return consume;
+    }
+
+    tail = (overlay_input_head + overlay_input_count++) % ARRAY_SIZE(overlay_input_events);
+    overlay_input_events[tail].event = *event;
+    overlay_input_events[tail].completion = wait ? &completion : NULL;
+    pthread_cond_signal( &overlay_input_cond );
+
+    while (wait && !completion.done && overlay_input_running)
+        pthread_cond_wait( &overlay_input_cond, &overlay_input_mutex );
+    if (wait) consume = completion.done && completion.consumed;
+    pthread_mutex_unlock( &overlay_input_mutex );
+    return consume;
+}
+
+static const struct wine_wayland_external_input_api *load_wayland_external_input( void **module )
+{
+    const struct wine_wayland_external_input_api *api;
+
+    if (!(*module = dlopen( "winewayland.so", RTLD_NOW | RTLD_NOLOAD ))) return NULL;
+    api = (const struct wine_wayland_external_input_api *)
+          dlsym( *module, WINE_WAYLAND_EXTERNAL_INPUT_SYMBOL );
+    if (!api || api->size < sizeof(*api) ||
+        api->version != WINE_WAYLAND_EXTERNAL_INPUT_VERSION ||
+        !api->set_handler || !api->set_active)
+    {
+        dlclose( *module );
+        *module = NULL;
+        return NULL;
+    }
+    return api;
+}
+
+static void sync_wayland_overlay_input_state(void);
+
+struct overlay_pointer_state
+{
+    int x, y, width, height;
+    unsigned int modifiers, buttons;
+    bool positioned;
+};
+
+static unsigned int overlay_button_from_linux( unsigned int code )
+{
+    switch (code)
+    {
+    case BTN_LEFT: return Button1;
+    case BTN_MIDDLE: return Button2;
+    case BTN_RIGHT: return Button3;
+    case BTN_SIDE:
+    case BTN_BACK: return 8;
+    case BTN_EXTRA:
+    case BTN_FORWARD: return 9;
+    default: return 0;
+    }
+}
+
+static unsigned int overlay_button_mask( unsigned int button )
+{
+    switch (button)
+    {
+    case Button1: return Button1Mask;
+    case Button2: return Button2Mask;
+    case Button3: return Button3Mask;
+    case Button4: return Button4Mask;
+    case Button5: return Button5Mask;
+    default: return 0;
+    }
+}
+
+static void update_overlay_modifier_state( struct overlay_pointer_state *state,
+                                           unsigned int key, bool pressed )
+{
+    unsigned int mask = 0;
+
+    switch (key)
+    {
+    case KEY_LEFTSHIFT:
+    case KEY_RIGHTSHIFT: mask = ShiftMask; break;
+    case KEY_LEFTCTRL:
+    case KEY_RIGHTCTRL: mask = ControlMask; break;
+    case KEY_LEFTALT:
+    case KEY_RIGHTALT: mask = Mod1Mask; break;
+    case KEY_LEFTMETA:
+    case KEY_RIGHTMETA: mask = Mod4Mask; break;
+    case KEY_CAPSLOCK:
+        if (pressed) state->modifiers ^= LockMask;
+        return;
+    case KEY_NUMLOCK:
+        if (pressed) state->modifiers ^= Mod2Mask;
+        return;
+    default: return;
+    }
+
+    if (pressed) state->modifiers |= mask;
+    else state->modifiers &= ~mask;
+}
+
+static bool dispatch_overlay_input_event( const struct overlay_x11_funcs *funcs,
+                                          Display *display, Window root, Window proxy,
+                                          unsigned long *serial,
+                                          struct overlay_pointer_state *state,
+                                          const struct wine_wayland_external_input_event *input )
+{
+    XEvent event = {};
+    unsigned int button, count;
+    bool consumed, pressed;
+
+    if (input->width > 0 && input->height > 0)
+    {
+        state->width = input->width;
+        state->height = input->height;
+    }
+    if (input->flags & WINE_WAYLAND_EXTERNAL_INPUT_ABSOLUTE)
+    {
+        state->x = input->x;
+        state->y = input->y;
+        state->positioned = true;
+    }
+    if (input->type != WINE_WAYLAND_EXTERNAL_INPUT_KEY &&
+        input->type != WINE_WAYLAND_EXTERNAL_INPUT_FOCUS &&
+        (!state->width || !state->height)) return false;
+
+    switch (input->type)
+    {
+    case WINE_WAYLAND_EXTERNAL_INPUT_POINTER_MOTION:
+        if (!(input->flags & WINE_WAYLAND_EXTERNAL_INPUT_ABSOLUTE) && !state->positioned)
+        {
+            state->x = state->width / 2;
+            state->y = state->height / 2;
+            state->positioned = true;
+        }
+        if ((input->flags & WINE_WAYLAND_EXTERNAL_INPUT_RELATIVE) &&
+            !(input->flags & WINE_WAYLAND_EXTERNAL_INPUT_ABSOLUTE))
+        {
+            state->x += input->dx;
+            state->y += input->dy;
+        }
+        state->x = std::max( 0, std::min( state->x, state->width - 1 ) );
+        state->y = std::max( 0, std::min( state->y, state->height - 1 ) );
+
+        event.xmotion.type = MotionNotify;
+        event.xmotion.root = root;
+        event.xmotion.time = input->time;
+        event.xmotion.x = event.xmotion.x_root = state->x;
+        event.xmotion.y = event.xmotion.y_root = state->y;
+        event.xmotion.state = state->modifiers | state->buttons;
+        event.xmotion.same_screen = True;
+        return send_overlay_event( funcs, display, proxy, &event, serial );
+
+    case WINE_WAYLAND_EXTERNAL_INPUT_POINTER_BUTTON:
+        if (!(button = overlay_button_from_linux( input->code ))) return false;
+        pressed = input->state != 0;
+        event.xbutton.type = pressed ? ButtonPress : ButtonRelease;
+        event.xbutton.root = root;
+        event.xbutton.time = input->time;
+        event.xbutton.x = event.xbutton.x_root = state->x;
+        event.xbutton.y = event.xbutton.y_root = state->y;
+        event.xbutton.state = state->modifiers | state->buttons;
+        event.xbutton.button = button;
+        event.xbutton.same_screen = True;
+        consumed = send_overlay_event( funcs, display, proxy, &event, serial );
+        if (pressed) state->buttons |= overlay_button_mask( button );
+        else state->buttons &= ~overlay_button_mask( button );
+        return consumed;
+
+    case WINE_WAYLAND_EXTERNAL_INPUT_POINTER_AXIS:
+        if (!input->value) return true;
+        if (input->code == 0)
+            button = input->value > 0 ? Button4 : Button5;
+        else
+            button = input->value > 0 ? 7 : 6;
+        count = (abs( input->value ) + 119) / 120;
+        while (count--)
+        {
+            event.xbutton.type = ButtonPress;
+            event.xbutton.root = root;
+            event.xbutton.time = input->time;
+            event.xbutton.x = event.xbutton.x_root = state->x;
+            event.xbutton.y = event.xbutton.y_root = state->y;
+            event.xbutton.state = state->modifiers | state->buttons;
+            event.xbutton.button = button;
+            event.xbutton.same_screen = True;
+            if (!send_overlay_event( funcs, display, proxy, &event, serial )) return false;
+            event.xbutton.type = ButtonRelease;
+            if (!send_overlay_event( funcs, display, proxy, &event, serial )) return false;
+        }
+        return true;
+
+    case WINE_WAYLAND_EXTERNAL_INPUT_KEY:
+        pressed = input->state != 0;
+        event.xkey.type = pressed ? KeyPress : KeyRelease;
+        event.xkey.root = root;
+        event.xkey.time = input->time;
+        event.xkey.x = event.xkey.x_root = state->x;
+        event.xkey.y = event.xkey.y_root = state->y;
+        event.xkey.state = state->modifiers | state->buttons;
+        event.xkey.keycode = input->code + 8;
+        event.xkey.same_screen = True;
+        consumed = send_overlay_event( funcs, display, proxy, &event, serial );
+        update_overlay_modifier_state( state, input->code, pressed );
+        return consumed;
+
+    case WINE_WAYLAND_EXTERNAL_INPUT_FOCUS:
+        if (!input->state) state->modifiers = state->buttons = 0;
+        return send_overlay_focus_event( funcs, display, proxy, serial, input->state != 0 );
+    }
+
+    return false;
+}
+
+static void *wayland_overlay_input_thread( void *arg )
+{
+    struct overlay_x11_funcs funcs = {};
+    struct wine_wayland_external_input_handler handler =
+    {
+        sizeof(handler), WINE_WAYLAND_EXTERNAL_INPUT_VERSION, NULL, queue_overlay_input_event,
+    };
+    struct overlay_pointer_state pointer_state = {};
+    struct wine_wayland_vulkan_proxy proxy_info =
+    {
+        sizeof(proxy_info), WINE_WAYLAND_VULKAN_PROXY_VERSION,
+    };
+    const struct wine_wayland_external_input_api *input_api = NULL;
+    Display *display = NULL;
+    void *wayland_module = NULL;
+    Window root, proxy = None;
+    unsigned long serial = 0;
+    bool handler_registered = false;
+    int screen;
+
+    if (!(input_api = load_wayland_external_input( &wayland_module )))
+    {
+        fprintf( stderr, "lsteamclient: WineWayland external input interface is unavailable.\n" );
+        goto cleanup;
+    }
+    if (!load_overlay_x11_funcs( &funcs )) goto cleanup;
+
+    /* Target the proxy window winewayland.drv created for the presenting
+     * surface: that is the window the Steam overlay recorded, and the one its
+     * input method is attached to. */
+    if (wayland_module)
+    {
+        BOOL (*get_proxy)(struct wine_wayland_vulkan_proxy *) =
+                (BOOL (*)(struct wine_wayland_vulkan_proxy *))
+                dlsym( wayland_module, WINE_WAYLAND_VULKAN_PROXY_SYMBOL );
+        if (get_proxy && get_proxy( &proxy_info ))
+        {
+            display = (Display *)proxy_info.display;
+            proxy = (Window)proxy_info.window;
+        }
+    }
+
+    if (!proxy)
+    {
+        fprintf( stderr, "lsteamclient: no winewayland proxy window for the overlay input bridge.\n" );
+        goto cleanup;
+    }
+
+    screen = DefaultScreen( display );
+    root = RootWindow( display, screen );
+
+    if (!input_api->set_handler( &handler ))
+    {
+        fprintf( stderr, "lsteamclient: WineWayland external input listener is unavailable.\n" );
+        goto cleanup;
+    }
+    handler_registered = true;
+    pthread_mutex_lock( &overlay_input_mutex );
+    overlay_input_api = input_api;
+    if (overlay_input_active)
+    {
+        overlay_input_applied_serial = overlay_input_active_serial - 1;
+        __atomic_store_n( &overlay_input_sync_pending, true, __ATOMIC_RELEASE );
+    }
+    else overlay_input_applied_serial = overlay_input_active_serial;
+    pthread_mutex_unlock( &overlay_input_mutex );
+
+    for (;;)
+    {
+        struct overlay_input_queue_event queued;
+        bool consumed;
+
+        pthread_mutex_lock( &overlay_input_mutex );
+        while (!overlay_input_count)
+            pthread_cond_wait( &overlay_input_cond, &overlay_input_mutex );
+        queued = overlay_input_events[overlay_input_head];
+        overlay_input_head = (overlay_input_head + 1) % ARRAY_SIZE(overlay_input_events);
+        overlay_input_count--;
+        pthread_mutex_unlock( &overlay_input_mutex );
+
+        consumed = dispatch_overlay_input_event( &funcs, display, root, proxy, &serial,
+                                                 &pointer_state, &queued.event );
+        if (queued.completion)
+        {
+            pthread_mutex_lock( &overlay_input_mutex );
+            queued.completion->consumed = consumed;
+            queued.completion->done = true;
+            pthread_cond_broadcast( &overlay_input_cond );
+            pthread_mutex_unlock( &overlay_input_mutex );
+        }
+    }
+
+cleanup:
+    pthread_mutex_lock( &overlay_input_mutex );
+    overlay_input_running = false;
+    overlay_input_head = overlay_input_count = 0;
+    overlay_focus_valid = false;
+    overlay_input_api = NULL;
+    __atomic_store_n( &overlay_input_sync_pending, false, __ATOMIC_RELEASE );
+    pthread_cond_broadcast( &overlay_input_cond );
+    pthread_mutex_unlock( &overlay_input_mutex );
+    if (handler_registered) input_api->set_handler( NULL );
+    /* The display and proxy window belong to winewayland.drv. */
+    if (display && funcs.sync) funcs.sync( display, False );
+    if (funcs.x11_module) dlclose( funcs.x11_module );
+    if (wayland_module) dlclose( wayland_module );
+    return NULL;
+}
+
+static void start_wayland_overlay_input(void)
+{
+    pthread_t thread;
+
+    if (!overlay_input_enabled) return;
+
+    pthread_mutex_lock( &overlay_input_mutex );
+    if (!overlay_input_running)
+    {
+        overlay_input_running = true;
+        if (pthread_create( &thread, NULL, wayland_overlay_input_thread, NULL ))
+        {
+            ERR( "Overlay input bridge could not create its event thread.\n" );
+            overlay_input_running = false;
+        }
+        else pthread_detach( thread );
+    }
+    pthread_mutex_unlock( &overlay_input_mutex );
+}
+
+static void sync_wayland_overlay_input_state(void)
+{
+    const struct wine_wayland_external_input_api *api;
+    unsigned int serial;
+    bool active, retry, updated;
+
+    for (;;)
+    {
+        pthread_mutex_lock( &overlay_input_mutex );
+        if (!(api = overlay_input_api) || overlay_input_update_running ||
+            overlay_input_applied_serial == overlay_input_active_serial)
+        {
+            pthread_mutex_unlock( &overlay_input_mutex );
+            return;
+        }
+        overlay_input_update_running = true;
+        serial = overlay_input_active_serial;
+        active = overlay_input_active;
+        pthread_mutex_unlock( &overlay_input_mutex );
+
+        updated = api->set_active( active );
+
+        pthread_mutex_lock( &overlay_input_mutex );
+        if (updated) overlay_input_applied_serial = serial;
+        if (updated && overlay_input_applied_serial == overlay_input_active_serial)
+            __atomic_store_n( &overlay_input_sync_pending, false, __ATOMIC_RELEASE );
+        overlay_input_update_running = false;
+        retry = updated && overlay_input_applied_serial != overlay_input_active_serial;
+        pthread_mutex_unlock( &overlay_input_mutex );
+        if (!retry) return;
+    }
+}
+
+static void set_wayland_overlay_input( bool active )
+{
+    if (active) start_wayland_overlay_input();
+
+    pthread_mutex_lock( &overlay_input_mutex );
+    if (!active && !overlay_input_running && !overlay_input_api)
+    {
+        overlay_input_active = false;
+        __atomic_store_n( &overlay_input_sync_pending, false, __ATOMIC_RELEASE );
+        pthread_mutex_unlock( &overlay_input_mutex );
+        return;
+    }
+    overlay_input_active = active;
+    overlay_input_active_serial++;
+    __atomic_store_n( &overlay_input_sync_pending, true, __ATOMIC_RELEASE );
+    pthread_cond_signal( &overlay_input_cond );
+    pthread_mutex_unlock( &overlay_input_mutex );
+
+    sync_wayland_overlay_input_state();
+}
+
 template< typename Params >
 static NTSTATUS steamclient_Steam_BGetCallback( Params *params, bool wow64 )
 {
     u_CallbackMsg_t *u_msg, u_msg_tmp;
     auto *w_msg = &*params->w_msg;
+
+    if (__atomic_load_n( &overlay_input_sync_pending, __ATOMIC_ACQUIRE ))
+        sync_wayland_overlay_input_state();
 
     if (!p_Steam_BGetCallback( params->pipe, &u_msg_tmp, params->ignored ))
         params->_ret = false;
@@ -317,6 +902,8 @@ static NTSTATUS steamclient_Steam_BGetCallback( Params *params, bool wow64 )
     {
         u_msg = new u_CallbackMsg_t(u_msg_tmp);
         TRACE( "id %d, u_size %d.\n", u_msg->m_iCallback, u_msg->m_cubParam );
+        if (u_msg->m_iCallback == 0x14b && u_msg->m_cubParam)
+            set_wayland_overlay_input( *(uint8_t *)u_msg->m_pubParam );
         w_msg->m_hSteamUser = u_msg->m_hSteamUser;
         w_msg->m_iCallback = u_msg->m_iCallback;
         w_msg->m_cubParam = callback_len_utow( u_msg->m_iCallback, u_msg->m_cubParam, false );
@@ -708,12 +1295,16 @@ template< typename Params >
 static NTSTATUS steamclient_init( Params *params, bool wow64 )
 {
     char path[PATH_MAX], resolved_path[PATH_MAX];
+    const char *setting;
     static void *steamclient;
 
     g_tmppath = params->g_tmppath;
 
     if (params->steam_app_id_unset) unsetenv( "SteamAppId" );
     else if (params->steam_app_id) setenv( "SteamAppId", params->steam_app_id, TRUE );
+    setting = getenv( "PROTON_WAYLAND_STEAM_OVERLAY" );
+    overlay_input_enabled = setting && strcmp( setting, "0" );
+    if (overlay_input_enabled) start_wayland_overlay_input();
     if (params->ignore_child_processes_unset) unsetenv( "IgnoreChildProcesses" );
     else if (params->ignore_child_processes) setenv( "IgnoreChildProcesses", params->ignore_child_processes, TRUE );
 

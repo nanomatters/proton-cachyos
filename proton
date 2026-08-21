@@ -1672,6 +1672,43 @@ class Session:
                 ]:
             self.env["WINE_DISABLE_GAMESCOPE_MAX_SIZE_HACK"] = "1"
 
+
+    def setup_wayland_steam_overlay(self):
+        """Enable the native Steam overlay on winewayland.
+
+        The overlay only reaches an X11 input method when it records an X11
+        window for the presenting surface, so winewayland.drv creates the
+        surface through vkCreateXlibSurfaceKHR on a proxy window, and the
+        translation layer shipped in this package rewrites it back to Wayland
+        below the overlay layer.
+
+        Wine explicitly enables Steam's overlay layer followed by the matching
+        translation layer in the host VkInstanceCreateInfo. Proton exposes the
+        package-private translation manifests through the loader's active
+        explicit-layer search path.
+        """
+        # Avoid adding the layer to the known EAC and BattlEye runtime paths.
+        for var in ("PROTON_EAC_RUNTIME", "PROTON_BATTLEYE_RUNTIME"):
+            if self.env.get(var):
+                log("Steam overlay bridge disabled: " + var + " is in use")
+                self.env["PROTON_WAYLAND_STEAM_OVERLAY"] = "0"
+                return
+
+        share_dir = g_proton.path("files/share")
+        manifest_dir = os.path.join(share_dir, "vulkan/explicit_layer.d")
+        manifests = []
+        for arch in ("x86_64", "i386"):
+            manifest = "VkLayer_WINELAND_translate_" + arch + ".json"
+            if os.path.exists(os.path.join(manifest_dir, manifest)):
+                manifests.append(manifest)
+
+        if len(manifests) != 2:
+            log("Steam overlay bridge disabled: translation layer is unavailable")
+            self.env["PROTON_WAYLAND_STEAM_OVERLAY"] = "0"
+            return
+
+        utilities.add_vk_explicit_layer(prepend_to_env_str, self.env, manifest_dir)
+
     def init_wine(self):
         if "HOST_LC_ALL" in self.env and len(self.env["HOST_LC_ALL"]) > 0:
             #steam sets LC_ALL=C to help some games, but Wine requires the real value
@@ -2171,12 +2208,14 @@ class Session:
         if "wayland" in self.compat_config and "WAYLAND_DISPLAY" in self.env:
             self.dlloverrides["winex11.drv"] = "d"
             self.dlloverrides["winewayland.drv"] = "b"
+            if self.env.get("SteamGameId") or self.env.get("SteamAppId"):
+                self.env.setdefault("PROTON_WAYLAND_STEAM_OVERLAY", "1")
+            if nonzero(self.env.get("PROTON_WAYLAND_STEAM_OVERLAY", "0")):
+                self.setup_wayland_steam_overlay()
             # This is required for OpenGL to work on winewayland
             self.env["WINE_USE_EGL"] = "1"
             # FSHack is not needed on winewayland
             self.env["WINE_DISABLE_FULLSCREEN_HACK"] = "1"
-            # Enable the move hack
-            self.env.setdefault("WINE_MOVE_HACK", "1")
             # It is not possible for winewayland to support xalia since
             # there is no way to position toplevel surfaces dynamically in wayland
             self.env["PROTON_USE_XALIA"] = "0"

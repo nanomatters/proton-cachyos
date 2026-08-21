@@ -751,6 +751,51 @@ $(eval $(call rules-makedep,lsteamclient,aarch64))
 
 
 ##
+## wineland vulkan surface translation layer
+##
+## Sits below the Steam overlay layer and rewrites the Xlib surface that
+## winewayland.drv creates on its X11 proxy window into a real Wayland surface,
+## so the overlay records an X11 window (and reaches an input method) while
+## presentation still goes to the compositor.
+##
+
+WINELAND_VKLAYER_SRC := $(SRCDIR)/vklayers/wineland_vk_translate.c
+WINELAND_VKLAYER_INCLUDES := -I$(SRCDIR)/Vulkan-Headers/include -I$(SRCDIR)/wine/include
+WINELAND_VKLAYER_DSTDIR := $(DST_LIBDIR)/wineland/vulkan
+WINELAND_VKLAYER_MANIFESTDIR := $(DST_DIR)/share/vulkan/explicit_layer.d
+WINELAND_VKLAYER_HEADER := $(SRCDIR)/wine/include/wine/wayland_vulkan_proxy.h
+WINELAND_VKLAYER_MANIFEST := $(SRCDIR)/vklayers/VkLayer_WINELAND_translate.json.in
+
+define wineland-vklayer-rule # (1): arch, (2): manifest architecture
+WINELAND_VKLAYER_$(1) := $$(WINELAND_VKLAYER_DSTDIR)/libVkLayer_WINELAND_translate_$(1).so
+WINELAND_VKLAYER_MANIFEST_$(1) := $$(WINELAND_VKLAYER_MANIFESTDIR)/VkLayer_WINELAND_translate_$(1).json
+$$(WINELAND_VKLAYER_$(1)): $$(WINELAND_VKLAYER_SRC) $$(WINELAND_VKLAYER_HEADER) | $$(DST_DIR)
+	mkdir -p $$(dir $$@)
+	rm -f $$@
+	$$($(1)-unix_TARGET)-gcc $$($(1)_CFLAGS) $$(CFLAGS) -std=gnu11 -fPIC \
+		-fvisibility=hidden -Wl,-Bsymbolic -shared \
+		-Wl,-soname,libVkLayer_WINELAND_translate_$(1).so \
+		$$(WINELAND_VKLAYER_INCLUDES) -o $$@ $$< -pthread
+$$(WINELAND_VKLAYER_MANIFEST_$(1)): $$(WINELAND_VKLAYER_MANIFEST)
+	mkdir -p $$(WINELAND_VKLAYER_MANIFESTDIR)
+	sed -e 's|@NAME@|VK_LAYER_WINELAND_translate_$(1)|' \
+	    -e 's|@LIBRARY@|../../../lib/wineland/vulkan/libVkLayer_WINELAND_translate_$(1).so|' \
+	    -e 's|@ARCH@|$(2)|' $$(WINELAND_VKLAYER_MANIFEST) > $$@
+WINELAND_VKLAYER_TARGETS += $$(WINELAND_VKLAYER_$(1)) $$(WINELAND_VKLAYER_MANIFEST_$(1))
+endef
+
+ifneq ($(findstring x86_64,$(unix_ARCHS)),)
+$(eval $(call wineland-vklayer-rule,x86_64,64))
+endif
+ifneq ($(findstring i386,$(unix_ARCHS)),)
+$(eval $(call wineland-vklayer-rule,i386,32))
+endif
+
+.PHONY: wineland-vklayer
+wineland-vklayer: $(WINELAND_VKLAYER_TARGETS)
+
+
+##
 ## openxr
 ## Note 32-bit is not supported by SteamVR, so we don't build it.
 ##
@@ -1825,7 +1870,7 @@ endif
 ## default_pfx
 ##
 
-default_pfx: wine gst_good gst_bad gst_libav gst_plugins_rs lsteamclient steamexe vrclient wineopenxr $(WINEOPENXR64_JSON) dxvk dxvk-nvapi vkd3d-proton
+default_pfx: wine gst_good gst_bad gst_libav gst_plugins_rs lsteamclient wineland-vklayer steamexe vrclient wineopenxr $(WINEOPENXR64_JSON) dxvk dxvk-nvapi vkd3d-proton
 	find $(DST_LIBDIR)/wine -type f -execdir chmod a-w '{}' '+'
 	rm -rf $(abspath $(DIST_PREFIX))
 	rm -rf $(abspath $(DIST_PREFIX_ARM64))
