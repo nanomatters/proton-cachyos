@@ -1,0 +1,32 @@
+From c7cb901c74477220f4383cc72e52a39879a0cb11 Mon Sep 17 00:00:00 2001
+From: Erhan Bilgili <erhan.bilgili@gmail.com>
+Date: Sun, 23 Aug 2026 07:51:11 +0200
+Subject: [PATCH 9/9] upscalers: Separate provider and DLL replacement state.
+
+amdxcffx64.dll is loaded through Wine's AMD FFX provider and does not
+need loader path redirection. Keep its successful installation in the
+upscaler state while excluding the fsr4 token from
+WINE_UPSCALER_REPLACE.
+---
+ upscalers.py | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/upscalers.py b/upscalers.py
+index f45515c..24801e4 100644
+--- a/upscalers.py
++++ b/upscalers.py
+@@ -686,8 +686,9 @@ def setup_upscalers(
+     if 'ffx4' in upscaler_replace:
+         pass
+ 
+-    if upscaler_replace:
+-        env['WINE_UPSCALER_REPLACE'] = ','.join(upscaler_replace)
++    loader_replace = upscaler_replace - {'fsr4'}
++    if loader_replace:
++        env['WINE_UPSCALER_REPLACE'] = ','.join(loader_replace)
+         log.debug(f'WINE_UPSCALER_REPLACE: {env["WINE_UPSCALER_REPLACE"]}.')
+ 
+ 
+-- 
+2.55.0
+
