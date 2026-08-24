@@ -60,6 +60,14 @@ def file_exists(s, *, follow_symlinks):
 def nonzero(s):
     return len(s) > 0 and s != "0"
 
+def steam_game_id_is_app(s):
+    try:
+        game_id = int(s)
+    except (TypeError, ValueError):
+        return False
+    # CGameID stores the app ID in the low 24 bits and its type in the next 8.
+    return bool(game_id & 0xffffff) and ((game_id >> 24) & 0xff) == 0
+
 def prepend_to_env_str(env, variable, prepend_str, separator):
     if variable not in env:
         env[variable] = prepend_str
@@ -1682,10 +1690,10 @@ class Session:
         translation layer shipped in this package rewrites it back to Wayland
         below the overlay layer.
 
-        Wine explicitly enables Steam's overlay layer followed by the matching
-        translation layer in the host VkInstanceCreateInfo. Proton exposes the
-        package-private translation manifests through the loader's active
-        explicit-layer search path.
+        Steam enables its overlay as an implicit layer. Wine explicitly places
+        the matching translation layer below it in the host
+        VkInstanceCreateInfo. Proton exposes the package-private translation
+        manifests through the loader's active explicit-layer search path.
         """
         # Avoid adding the layer to the known EAC and BattlEye runtime paths.
         for var in ("PROTON_EAC_RUNTIME", "PROTON_BATTLEYE_RUNTIME"):
@@ -1693,6 +1701,12 @@ class Session:
                 log("Steam overlay bridge disabled: " + var + " is in use")
                 self.env["PROTON_WAYLAND_STEAM_OVERLAY"] = "0"
                 return
+
+        if (not nonzero(self.env.get("ENABLE_VK_LAYER_VALVE_steam_overlay_1", "0")) or
+            nonzero(self.env.get("DISABLE_VK_LAYER_VALVE_steam_overlay_1", "0"))):
+            log("Steam overlay bridge disabled: native overlay is unavailable")
+            self.env["PROTON_WAYLAND_STEAM_OVERLAY"] = "0"
+            return
 
         share_dir = g_proton.path("files/share")
         manifest_dir = os.path.join(share_dir, "vulkan/explicit_layer.d")
@@ -1706,6 +1720,10 @@ class Session:
             log("Steam overlay bridge disabled: translation layer is unavailable")
             self.env["PROTON_WAYLAND_STEAM_OVERLAY"] = "0"
             return
+
+        # Wine explicitly places MangoHud below the surface translation layer.
+        if self.env.get("MANGOHUD") == "1":
+            self.env["DISABLE_MANGOHUD"] = "1"
 
         utilities.add_vk_explicit_layer(prepend_to_env_str, self.env, manifest_dir)
 
@@ -2206,12 +2224,15 @@ class Session:
             self.env["__GLVND_DISALLOW_PATCHING"] = "1"
 
         if "wayland" in self.compat_config and "WAYLAND_DISPLAY" in self.env:
+            steam_game_id = self.env.get("SteamGameId") or self.env.get("SteamAppId")
             self.dlloverrides["winex11.drv"] = "d"
             self.dlloverrides["winewayland.drv"] = "b"
-            if self.env.get("SteamGameId") or self.env.get("SteamAppId"):
+            if steam_game_id_is_app(steam_game_id):
                 self.env.setdefault("PROTON_WAYLAND_STEAM_OVERLAY", "1")
-            if nonzero(self.env.get("PROTON_WAYLAND_STEAM_OVERLAY", "0")):
-                self.setup_wayland_steam_overlay()
+                if nonzero(self.env.get("PROTON_WAYLAND_STEAM_OVERLAY", "0")):
+                    self.setup_wayland_steam_overlay()
+            else:
+                self.env["PROTON_WAYLAND_STEAM_OVERLAY"] = "0"
             # This is required for OpenGL to work on winewayland
             self.env["WINE_USE_EGL"] = "1"
             # FSHack is not needed on winewayland
