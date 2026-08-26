@@ -1727,6 +1727,48 @@ class Session:
 
         utilities.add_vk_explicit_layer(prepend_to_env_str, self.env, manifest_dir)
 
+    def setup_wayland_primary_monitor(self):
+        if "WAYLANDDRV_PRIMARY_MONITOR" in self.env:
+            return
+
+        desktops = set()
+        for variable in ("XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP"):
+            desktops.update(name.upper() for name in self.env.get(variable, "").split(":") if name)
+        if "KDE" not in desktops and not nonzero(self.env.get("KDE_FULL_SESSION", "0")):
+            return
+
+        runtime_launcher = shutil.which("steam-runtime-launch-client", path=self.env.get("PATH"))
+        if runtime_launcher:
+            command = [
+                runtime_launcher, "--alongside-steam", "--",
+                "/usr/bin/kscreen-doctor", "-j",
+            ]
+        else:
+            kscreen_doctor = shutil.which("kscreen-doctor", path=self.env.get("PATH"))
+            if not kscreen_doctor:
+                return
+            command = [kscreen_doctor, "-j"]
+
+        try:
+            result = subprocess.run(
+                command, env=self.env, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, text=True, timeout=2, check=True)
+            config = json.loads(result.stdout)
+        except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+            return
+
+        if not isinstance(config, dict) or not isinstance(config.get("outputs"), list):
+            return
+
+        primary = [
+            output.get("name") for output in config["outputs"]
+            if isinstance(output, dict) and output.get("connected") and output.get("enabled")
+            and output.get("priority") == 1 and output.get("name")
+        ]
+        if len(primary) == 1:
+            self.env["WAYLANDDRV_PRIMARY_MONITOR"] = primary[0]
+            log("Using Plasma primary monitor " + primary[0])
+
     def init_wine(self):
         if "HOST_LC_ALL" in self.env and len(self.env["HOST_LC_ALL"]) > 0:
             #steam sets LC_ALL=C to help some games, but Wine requires the real value
@@ -2227,6 +2269,7 @@ class Session:
             steam_game_id = self.env.get("SteamGameId") or self.env.get("SteamAppId")
             self.dlloverrides["winex11.drv"] = "d"
             self.dlloverrides["winewayland.drv"] = "b"
+            self.setup_wayland_primary_monitor()
             if steam_game_id_is_app(steam_game_id):
                 self.env.setdefault("PROTON_WAYLAND_STEAM_OVERLAY", "1")
                 if nonzero(self.env.get("PROTON_WAYLAND_STEAM_OVERLAY", "0")):
