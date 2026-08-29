@@ -98,6 +98,24 @@ stability. In some situations, it may even be more stable than other Proton
 versions.
 
 
+How is artificial intelligence used?
+------------------------------------
+
+AI tools are a regular part of Proton Wineland's development process. I use
+them to analyse logs, investigate problems, review changes, and help fix or
+generate code when I consider that appropriate.
+
+Before delivery, every commit goes through an AI-assisted review. I examine
+the findings and decide whether the suggested changes are technically sound
+and suitable for the project. When they are, I may let the AI modify the code
+and then review the result again.
+
+AI does not replace engineering judgement, testing, or responsibility for the
+code that is delivered. Used thoughtfully, however, it is a valuable software
+development tool that can accelerate investigation and help identify problems
+that might otherwise be missed.
+
+
 What is the relationship to CachyOS Proton?
 -------------------------------------------
 
