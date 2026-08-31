@@ -20,6 +20,7 @@
 #include <vulkan/vk_layer.h>
 
 #include "wine/wayland_vulkan_proxy.h"
+#include "wineland_overlay_client.h"
 
 struct physical_device_data
 {
@@ -174,6 +175,8 @@ static VKAPI_ATTR VkResult VKAPI_CALL wineland_CreateXlibSurfaceKHR(
     result = create_wayland_surface(instance, &wayland_info, allocator, surface);
     TRACE("translated proxy window 0x%lx to Wayland surface %p, result=%d\n",
           (unsigned long)create_info->window, (void *)wayland_info.surface, result);
+    if (result == VK_SUCCESS)
+        wineland_overlay_client_start(create_info->dpy, create_info->window);
     return result;
 }
 

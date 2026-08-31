@@ -756,26 +756,30 @@ $(eval $(call rules-makedep,lsteamclient,aarch64))
 ## Sits below the Steam overlay layer and rewrites the Xlib surface that
 ## winewayland.drv creates on its X11 proxy window into a real Wayland surface,
 ## so the overlay records an X11 window (and reaches an input method) while
-## presentation still goes to the compositor.
+## presentation still goes to the compositor. Its renderer local input client
+## forwards WineWayland seat events through Steam's X11 hooks.
 ##
 
-WINELAND_VKLAYER_SRC := $(SRCDIR)/vklayers/wineland_vk_translate.c
+WINELAND_VKLAYER_SRCS := $(SRCDIR)/vklayers/wineland_vk_translate.c \
+	$(SRCDIR)/vklayers/wineland_overlay_client.c
 WINELAND_VKLAYER_INCLUDES := -I$(SRCDIR)/Vulkan-Headers/include -I$(SRCDIR)/wine/include
 WINELAND_VKLAYER_DSTDIR := $(DST_LIBDIR)/wineland/vulkan
 WINELAND_VKLAYER_MANIFESTDIR := $(DST_DIR)/share/vulkan/explicit_layer.d
-WINELAND_VKLAYER_HEADER := $(SRCDIR)/wine/include/wine/wayland_vulkan_proxy.h
+WINELAND_VKLAYER_HEADERS := $(SRCDIR)/wine/include/wine/wayland_external_input.h \
+	$(SRCDIR)/wine/include/wine/wayland_vulkan_proxy.h \
+	$(SRCDIR)/vklayers/wineland_overlay_client.h
 WINELAND_VKLAYER_MANIFEST := $(SRCDIR)/vklayers/VkLayer_WINELAND_translate.json.in
 
 define wineland-vklayer-rule # (1): arch, (2): manifest architecture
 WINELAND_VKLAYER_$(1) := $$(WINELAND_VKLAYER_DSTDIR)/libVkLayer_WINELAND_translate_$(1).so
 WINELAND_VKLAYER_MANIFEST_$(1) := $$(WINELAND_VKLAYER_MANIFESTDIR)/VkLayer_WINELAND_translate_$(1).json
-$$(WINELAND_VKLAYER_$(1)): $$(WINELAND_VKLAYER_SRC) $$(WINELAND_VKLAYER_HEADER) | $$(DST_DIR)
+$$(WINELAND_VKLAYER_$(1)): $$(WINELAND_VKLAYER_SRCS) $$(WINELAND_VKLAYER_HEADERS) | $$(DST_DIR)
 	mkdir -p $$(dir $$@)
 	rm -f $$@
 	$$($(1)-unix_TARGET)-gcc $$($(1)_CFLAGS) $$(CFLAGS) -std=gnu11 -fPIC \
 		-fvisibility=hidden -Wl,-Bsymbolic -shared \
 		-Wl,-soname,libVkLayer_WINELAND_translate_$(1).so \
-		$$(WINELAND_VKLAYER_INCLUDES) -o $$@ $$< -pthread
+		$$(WINELAND_VKLAYER_INCLUDES) -o $$@ $$(WINELAND_VKLAYER_SRCS) -pthread -ldl
 $$(WINELAND_VKLAYER_MANIFEST_$(1)): $$(WINELAND_VKLAYER_MANIFEST)
 	mkdir -p $$(WINELAND_VKLAYER_MANIFESTDIR)
 	sed -e 's|@NAME@|VK_LAYER_WINELAND_translate_$(1)|' \
