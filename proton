@@ -1620,6 +1620,13 @@ class Session:
     def __init__(self):
         self.log_file = None
         self.env = dict(os.environ)
+        try:
+            with open(g_proton.version_file, "r") as version_file:
+                _, _, build_name = version_file.readline().strip().partition(" ")
+                if build_name:
+                    self.env.setdefault("PROTON_BUILD_NAME", build_name)
+        except OSError:
+            pass
         self.dlloverrides = {
                 "steam.exe": "b", #always use our special built-in steam.exe
                 "dotnetfx35.exe": "b", #replace the broken installer, as does Windows
