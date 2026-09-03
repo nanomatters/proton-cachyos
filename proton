@@ -1964,6 +1964,29 @@ class Session:
         self.env.setdefault("VKD3D_DEBUG", "none")
         self.env.setdefault("VKD3D_SHADER_DEBUG", "none")
 
+        hud_presets = {
+            "1": "fps,fps_lows,bottom,winsys,horizontal,center",
+            "2": (
+                "fps,fps_lows,gpu.load,gpu.power,gpu.temp,newline,"
+                "cpu.load,cpu.power,cpu.temp,bottom,winsys,proton,gpu.driver,"
+                "horizontal,center"
+            ),
+            "3": (
+                "fps,fps_lows,gpu.load,gpu.power,gpu.temp,gpu.clock,gpu.vram,newline,"
+                "cpu.load,cpu.power,cpu.temp,cpu.clock,bottom,winsys,proton,"
+                "gpu.driver,horizontal,center"
+            ),
+            "4": (
+                "present_latency,newline,fps,fps_lows,gpu.load,gpu.power,"
+                "gpu.temp,gpu.clock,gpu.vram,newline,cpu.load,cpu.power,cpu.temp,"
+                "cpu.clock,bottom,winsys,proton,gpu.driver,horizontal,center"
+            ),
+            "5": "full,-systeminfo",
+        }
+        hud_level = self.env.get("PROTON_HUD")
+        if "DXVK_HUD" not in self.env and hud_level in hud_presets:
+            self.env["DXVK_HUD"] = hud_presets[hud_level]
+
         # Enable wine-nvml by default on Nvidia (experimental)
         if utilities.is_driver_loaded({'nvidia'}):
             self.compat_config.add("nvml")
