@@ -30,7 +30,8 @@
 	url = https://github.com/SveSop/wine-nvoptix.git
 [submodule "dxvk"]
 	path = dxvk
-	url = https://github.com/doitsujin/dxvk.git
+	url = https://github.com/nanomatters/dxvk-salkim.git
+	branch = salkim
 [submodule "openvr"]
 	path = openvr
 	url = https://github.com/ValveSoftware/openvr
@@ -78,7 +79,8 @@
 	url = https://github.com/Open-Wine-Components/umu-protonfixes
 [submodule "vkd3d-proton"]
 	path = vkd3d-proton
-	url = https://github.com/HansKristian-Work/vkd3d-proton
+	url = https://github.com/nanomatters/vkd3d-proton-salkim.git
+	branch = salkim
 [submodule "OpenXR-SDK"]
 	path = OpenXR-SDK
 	url = https://github.com/KhronosGroup/OpenXR-SDK

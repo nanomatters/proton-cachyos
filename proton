@@ -2302,8 +2302,8 @@ class Session:
             self.setup_wayland_primary_monitor()
             if steam_game_id_is_app(steam_game_id):
                 self.env.setdefault("PROTON_WAYLAND_STEAM_OVERLAY", "1")
-                if nonzero(self.env.get("PROTON_WAYLAND_STEAM_OVERLAY", "0")):
-                    self.setup_wayland_steam_overlay()
+            if nonzero(self.env.get("PROTON_WAYLAND_STEAM_OVERLAY", "0")):
+                self.setup_wayland_steam_overlay()
             else:
                 self.env["PROTON_WAYLAND_STEAM_OVERLAY"] = "0"
             # This is required for OpenGL to work on winewayland
