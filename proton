@@ -2322,6 +2322,8 @@ class Session:
 
         if "wayland" in self.compat_config and "WAYLAND_DISPLAY" in self.env:
             steam_game_id = self.env.get("SteamGameId") or self.env.get("SteamAppId")
+            # Override saved graphics-driver preferences without changing the prefix.
+            self.env["WINE_GRAPHICS_DRIVER"] = "wayland"
             self.dlloverrides["winex11.drv"] = "d"
             self.dlloverrides["winewayland.drv"] = "b"
             self.setup_wayland_primary_monitor()
