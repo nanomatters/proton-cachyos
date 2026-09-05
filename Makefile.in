@@ -769,10 +769,13 @@ WINELAND_VKLAYER_HEADERS := $(SRCDIR)/wine/include/wine/wayland_external_input.h
 	$(SRCDIR)/wine/include/wine/wayland_vulkan_proxy.h \
 	$(SRCDIR)/vklayers/wineland_overlay_client.h
 WINELAND_VKLAYER_MANIFEST := $(SRCDIR)/vklayers/VkLayer_WINELAND_translate.json.in
+WINELAND_OPENGL_OVERLAY_SRC := $(SRCDIR)/vklayers/wineland_overlay_gl.c
+WINELAND_OPENGL_OVERLAY_HEADER := $(SRCDIR)/wine/include/wine/wayland_opengl_overlay.h
 
 define wineland-vklayer-rule # (1): arch, (2): manifest architecture
 WINELAND_VKLAYER_$(1) := $$(WINELAND_VKLAYER_DSTDIR)/libVkLayer_WINELAND_translate_$(1).so
 WINELAND_VKLAYER_MANIFEST_$(1) := $$(WINELAND_VKLAYER_MANIFESTDIR)/VkLayer_WINELAND_translate_$(1).json
+WINELAND_OPENGL_OVERLAY_$(1) := $$(DST_LIBDIR)/wineland/opengl/$(1)/libwineland-overlay-gl.so
 $$(WINELAND_VKLAYER_$(1)): $$(WINELAND_VKLAYER_SRCS) $$(WINELAND_VKLAYER_HEADERS) | $$(DST_DIR)
 	mkdir -p $$(dir $$@)
 	rm -f $$@
@@ -785,7 +788,15 @@ $$(WINELAND_VKLAYER_MANIFEST_$(1)): $$(WINELAND_VKLAYER_MANIFEST)
 	sed -e 's|@NAME@|VK_LAYER_WINELAND_translate_$(1)|' \
 	    -e 's|@LIBRARY@|../../../lib/wineland/vulkan/libVkLayer_WINELAND_translate_$(1).so|' \
 	    -e 's|@ARCH@|$(2)|' $$(WINELAND_VKLAYER_MANIFEST) > $$@
-WINELAND_VKLAYER_TARGETS += $$(WINELAND_VKLAYER_$(1)) $$(WINELAND_VKLAYER_MANIFEST_$(1))
+$$(WINELAND_OPENGL_OVERLAY_$(1)): $$(WINELAND_OPENGL_OVERLAY_SRC) $$(WINELAND_OPENGL_OVERLAY_HEADER) \
+		$$(SRCDIR)/wine/include/wine/wayland_vulkan_proxy.h \
+		$$(SRCDIR)/vklayers/wineland_overlay_client.h | $$(DST_DIR)
+	mkdir -p $$(dir $$@)
+	$$($(1)-unix_TARGET)-gcc $$($(1)_CFLAGS) $$(CFLAGS) -std=gnu11 -fPIC \
+		-fvisibility=hidden -Wl,-Bsymbolic -shared -Wl,-soname,libwineland-overlay-gl.so \
+		-I$$(SRCDIR)/wine/include -o $$@ $$(WINELAND_OPENGL_OVERLAY_SRC) -pthread -ldl
+WINELAND_VKLAYER_TARGETS += $$(WINELAND_VKLAYER_$(1)) $$(WINELAND_VKLAYER_MANIFEST_$(1)) \
+	$$(WINELAND_OPENGL_OVERLAY_$(1))
 endef
 
 ifneq ($(findstring x86_64,$(unix_ARCHS)),)

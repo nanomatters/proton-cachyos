@@ -176,7 +176,8 @@ static VKAPI_ATTR VkResult VKAPI_CALL wineland_CreateXlibSurfaceKHR(
     TRACE("translated proxy window 0x%lx to Wayland surface %p, result=%d\n",
           (unsigned long)create_info->window, (void *)wayland_info.surface, result);
     if (result == VK_SUCCESS)
-        wineland_overlay_client_start(create_info->dpy, create_info->window);
+        __wineland_overlay_client_start_v1(create_info->dpy, create_info->window,
+                                           WINELAND_OVERLAY_INPUT_VULKAN);
     return result;
 }
 

@@ -57,6 +57,7 @@ struct overlay_input_queue_event
 {
     struct wine_wayland_external_input_event event;
     struct overlay_input_completion *completion;
+    unsigned int source_serial;
 };
 
 struct overlay_pointer_state
@@ -64,6 +65,20 @@ struct overlay_pointer_state
     int x, y, width, height;
     unsigned int modifiers, buttons;
     bool positioned;
+};
+
+enum overlay_input_ownership
+{
+    OVERLAY_INPUT_INACTIVE,
+    OVERLAY_INPUT_ACTIVATING,
+    OVERLAY_INPUT_ACTIVE,
+};
+
+enum overlay_event_result
+{
+    OVERLAY_EVENT_UNDELIVERED = -1,
+    OVERLAY_EVENT_DECLINED = 0,
+    OVERLAY_EVENT_CONSUMED = 1,
 };
 
 static pthread_mutex_t overlay_input_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -74,7 +89,9 @@ static unsigned int overlay_focus_serial;
 static bool overlay_focus_valid;
 static bool overlay_input_running;
 static bool overlay_input_initialized;
-static bool overlay_input_owned;
+static _Thread_local bool overlay_input_worker;
+static unsigned int overlay_input_sources, overlay_source_serial;
+static enum overlay_input_ownership overlay_input_ownership;
 static bool overlay_authoritative_known;
 static bool overlay_authoritative_active;
 static bool overlay_state_update_running;
@@ -106,8 +123,9 @@ static int trace_enabled(void)
 
 static bool overlay_active_locked(void)
 {
+    if (!overlay_input_sources) return false;
     if (overlay_authoritative_known) return overlay_authoritative_active;
-    return overlay_input_owned;
+    return overlay_input_ownership != OVERLAY_INPUT_INACTIVE;
 }
 
 static bool load_overlay_x11_funcs(struct overlay_x11_funcs *funcs)
@@ -270,7 +288,7 @@ static void update_overlay_modifier_state(struct overlay_pointer_state *state,
     else state->modifiers &= ~mask;
 }
 
-static bool dispatch_overlay_input_event(const struct overlay_x11_funcs *funcs,
+static int dispatch_overlay_input_event(const struct overlay_x11_funcs *funcs,
                                          Display *display, Window root, Window proxy,
                                          unsigned long *serial,
                                          struct overlay_pointer_state *state,
@@ -294,7 +312,7 @@ static bool dispatch_overlay_input_event(const struct overlay_x11_funcs *funcs,
     }
     if (input->type != WINE_WAYLAND_EXTERNAL_INPUT_KEY &&
         input->type != WINE_WAYLAND_EXTERNAL_INPUT_FOCUS &&
-        (!state->width || !state->height)) return false;
+        (!state->width || !state->height)) return OVERLAY_EVENT_UNDELIVERED;
 
     switch (input->type)
     {
@@ -326,7 +344,7 @@ static bool dispatch_overlay_input_event(const struct overlay_x11_funcs *funcs,
         return send_overlay_event(funcs, display, proxy, &event, serial);
 
     case WINE_WAYLAND_EXTERNAL_INPUT_POINTER_BUTTON:
-        if (!(button = overlay_button_from_linux(input->code))) return false;
+        if (!(button = overlay_button_from_linux(input->code))) return OVERLAY_EVENT_UNDELIVERED;
         pressed = input->state != 0;
         event.xbutton.type = pressed ? ButtonPress : ButtonRelease;
         event.xbutton.root = root;
@@ -342,7 +360,7 @@ static bool dispatch_overlay_input_event(const struct overlay_x11_funcs *funcs,
         return consumed;
 
     case WINE_WAYLAND_EXTERNAL_INPUT_POINTER_AXIS:
-        if (!input->value) return true;
+        if (!input->value) return OVERLAY_EVENT_UNDELIVERED;
         if (input->code == 0)
             button = input->value > 0 ? Button4 : Button5;
         else
@@ -387,7 +405,7 @@ static bool dispatch_overlay_input_event(const struct overlay_x11_funcs *funcs,
                                         input->state != 0);
     }
 
-    return false;
+    return OVERLAY_EVENT_UNDELIVERED;
 }
 
 static void sync_overlay_active(void)
@@ -424,22 +442,78 @@ static void sync_overlay_active(void)
     }
 }
 
-static bool event_updates_input_ownership(
-        const struct wine_wayland_external_input_event *event)
+static void update_input_ownership_locked(
+        const struct wine_wayland_external_input_event *event, int result)
 {
+    enum overlay_input_ownership previous = overlay_input_ownership;
+    bool consumed = result == OVERLAY_EVENT_CONSUMED;
+
+    if (!overlay_input_sources || overlay_authoritative_known ||
+        result == OVERLAY_EVENT_UNDELIVERED) return;
+
     switch (event->type)
     {
     case WINE_WAYLAND_EXTERNAL_INPUT_POINTER_MOTION:
-    case WINE_WAYLAND_EXTERNAL_INPUT_POINTER_BUTTON:
     case WINE_WAYLAND_EXTERNAL_INPUT_POINTER_AXIS:
-        return true;
+        /* Steam may consume the activation shortcut before its pointer path
+         * is ready. Do not let passive pointer traffic undo activation;
+         * the first consumed pointer event completes the transition. */
+        if (overlay_input_ownership == OVERLAY_INPUT_ACTIVATING)
+        {
+            if (consumed) overlay_input_ownership = OVERLAY_INPUT_ACTIVE;
+        }
+        else
+        {
+            overlay_input_ownership = consumed ? OVERLAY_INPUT_ACTIVE :
+                                                 OVERLAY_INPUT_INACTIVE;
+        }
+        break;
+
+    case WINE_WAYLAND_EXTERNAL_INPUT_POINTER_BUTTON:
+        if (overlay_input_ownership == OVERLAY_INPUT_ACTIVATING)
+        {
+            if (consumed)
+                overlay_input_ownership = OVERLAY_INPUT_ACTIVE;
+            /* Only a delivered, declined press cancels pending ownership.
+             * Missing geometry or an unsupported button says nothing about Steam. */
+            else if (event->state)
+                overlay_input_ownership = OVERLAY_INPUT_INACTIVE;
+        }
+        else
+        {
+            overlay_input_ownership = consumed ? OVERLAY_INPUT_ACTIVE :
+                                                 OVERLAY_INPUT_INACTIVE;
+        }
+        break;
+
     case WINE_WAYLAND_EXTERNAL_INPUT_KEY:
         /* Releases following the activation shortcut are not consistently
          * retained by Steam and therefore cannot relinquish ownership. */
-        return event->state != 0;
+        if (!event->state) break;
+        if (consumed)
+        {
+            if (overlay_input_ownership == OVERLAY_INPUT_INACTIVE)
+                overlay_input_ownership = OVERLAY_INPUT_ACTIVATING;
+        }
+        else
+        {
+            overlay_input_ownership = OVERLAY_INPUT_INACTIVE;
+        }
+        break;
+
+    case WINE_WAYLAND_EXTERNAL_INPUT_FOCUS:
+        if (!event->state &&
+            overlay_input_ownership == OVERLAY_INPUT_ACTIVATING)
+            overlay_input_ownership = OVERLAY_INPUT_INACTIVE;
+        break;
+
     default:
-        return false;
+        break;
     }
+
+    if ((previous != OVERLAY_INPUT_INACTIVE) !=
+        (overlay_input_ownership != OVERLAY_INPUT_INACTIVE))
+        overlay_state_serial++;
 }
 
 static int queue_overlay_input_event(void *context,
@@ -447,20 +521,28 @@ static int queue_overlay_input_event(void *context,
 {
     struct overlay_input_completion completion = {0};
     struct overlay_input_queue_event *queued;
-    unsigned int tail;
+    unsigned int tail, source_serial;
     bool active, wait;
 
     (void)context;
     if (event->size < sizeof(*event)) return 0;
 
-    /* Apply ownership on WineWayland's event thread. set_handler() emits its
-     * initial focus notification on the native worker, so skip it here. */
-    if (event->type != WINE_WAYLAND_EXTERNAL_INPUT_FOCUS)
-        sync_overlay_active();
+    /* set_handler() emits initial focus on our native worker. It must neither
+     * wait for itself nor invoke Wine's cursor APIs. Live focus runs in Wine. */
+    if (!overlay_input_worker) sync_overlay_active();
 
     pthread_mutex_lock(&overlay_input_mutex);
+    if (!overlay_input_sources || !overlay_input_running)
+    {
+        pthread_mutex_unlock(&overlay_input_mutex);
+        return 0;
+    }
     active = overlay_active_locked();
-    wait = event->type == WINE_WAYLAND_EXTERNAL_INPUT_KEY && !active;
+    source_serial = overlay_source_serial;
+    wait = !overlay_input_worker &&
+           (event->type == WINE_WAYLAND_EXTERNAL_INPUT_KEY ||
+            event->type == WINE_WAYLAND_EXTERNAL_INPUT_POINTER_BUTTON ||
+            event->type == WINE_WAYLAND_EXTERNAL_INPUT_FOCUS);
 
     if (event->type == WINE_WAYLAND_EXTERNAL_INPUT_FOCUS)
     {
@@ -482,7 +564,8 @@ static int queue_overlay_input_event(void *context,
     {
         tail = (overlay_input_head + overlay_input_count - 1) % ARRAY_SIZE(overlay_input_events);
         queued = &overlay_input_events[tail];
-        if (queued->event.type == event->type && !queued->completion)
+        if (queued->event.type == event->type && !queued->completion &&
+            queued->source_serial == overlay_source_serial)
         {
             if (event->flags & WINE_WAYLAND_EXTERNAL_INPUT_ABSOLUTE)
             {
@@ -504,6 +587,14 @@ static int queue_overlay_input_event(void *context,
         }
     }
 
+    /* Preserve discrete events even if coalesced pointer traffic fills the queue. */
+    while (wait && overlay_input_count == ARRAY_SIZE(overlay_input_events) && overlay_input_running)
+        pthread_cond_wait(&overlay_input_cond, &overlay_input_mutex);
+    if (!overlay_input_running || !overlay_input_sources || source_serial != overlay_source_serial)
+    {
+        pthread_mutex_unlock(&overlay_input_mutex);
+        return 0;
+    }
     if (overlay_input_count == ARRAY_SIZE(overlay_input_events))
     {
         pthread_mutex_unlock(&overlay_input_mutex);
@@ -513,6 +604,7 @@ static int queue_overlay_input_event(void *context,
     tail = (overlay_input_head + overlay_input_count++) % ARRAY_SIZE(overlay_input_events);
     overlay_input_events[tail].event = *event;
     overlay_input_events[tail].completion = wait ? &completion : NULL;
+    overlay_input_events[tail].source_serial = overlay_source_serial;
     pthread_cond_signal(&overlay_input_cond);
 
     /* Steam's hook must not wait for the WineWayland event thread. */
@@ -521,7 +613,7 @@ static int queue_overlay_input_event(void *context,
     if (wait && completion.done) active = completion.handled;
     pthread_mutex_unlock(&overlay_input_mutex);
 
-    /* Apply ownership changed by the synchronous key probe. */
+    /* Restore cursor/clipping before a declined press falls through to Wine. */
     if (wait) sync_overlay_active();
     return active;
 }
@@ -540,9 +632,11 @@ static void *overlay_input_thread(void *arg)
     void *wayland_module = NULL;
     Window root, proxy;
     unsigned long serial = 0;
+    unsigned int pointer_source_serial = 0;
     bool handler_registered = false;
 
     (void)arg;
+    overlay_input_worker = true;
     pthread_mutex_lock(&overlay_input_mutex);
     display = overlay_display;
     proxy = overlay_window;
@@ -574,7 +668,8 @@ static void *overlay_input_thread(void *arg)
     for (;;)
     {
         struct overlay_input_queue_event queued;
-        bool active, consumed;
+        bool active, pending;
+        int result;
 
         pthread_mutex_lock(&overlay_input_mutex);
         while (!overlay_input_count)
@@ -582,36 +677,53 @@ static void *overlay_input_thread(void *arg)
         queued = overlay_input_events[overlay_input_head];
         overlay_input_head = (overlay_input_head + 1) % ARRAY_SIZE(overlay_input_events);
         overlay_input_count--;
-        pthread_mutex_unlock(&overlay_input_mutex);
-
-        consumed = dispatch_overlay_input_event(&funcs, display, root, proxy, &serial,
-                                                &pointer_state, &queued.event);
-        pthread_mutex_lock(&overlay_input_mutex);
-        if (event_updates_input_ownership(&queued.event) &&
-            overlay_input_owned != consumed)
+        if (overlay_input_count == ARRAY_SIZE(overlay_input_events) - 1)
+            pthread_cond_broadcast(&overlay_input_cond);
+        if (!overlay_input_sources || queued.source_serial != overlay_source_serial)
         {
-            overlay_input_owned = consumed;
-            overlay_state_serial++;
+            if (queued.completion)
+            {
+                queued.completion->handled = false;
+                queued.completion->done = true;
+                pthread_cond_broadcast(&overlay_input_cond);
+            }
+            pthread_mutex_unlock(&overlay_input_mutex);
+            continue;
         }
-        active = overlay_active_locked();
         pthread_mutex_unlock(&overlay_input_mutex);
 
-        TRACE("event type %u code %u state %u consumed=%u active=%u\n",
-              queued.event.type, queued.event.code, queued.event.state,
-              consumed, active);
+        if (pointer_source_serial != queued.source_serial)
+        {
+            memset(&pointer_state, 0, sizeof(pointer_state));
+            pointer_source_serial = queued.source_serial;
+        }
+        result = dispatch_overlay_input_event(&funcs, display, root, proxy, &serial,
+                                              &pointer_state, &queued.event);
+        pthread_mutex_lock(&overlay_input_mutex);
+        if (!overlay_input_sources || queued.source_serial != overlay_source_serial)
+            result = OVERLAY_EVENT_UNDELIVERED;
+        update_input_ownership_locked(&queued.event, result);
+        active = overlay_active_locked();
+        pending = overlay_input_ownership == OVERLAY_INPUT_ACTIVATING;
         if (queued.completion)
         {
-            pthread_mutex_lock(&overlay_input_mutex);
-            queued.completion->handled = consumed || active;
+            queued.completion->handled = result != OVERLAY_EVENT_UNDELIVERED &&
+                                          (result == OVERLAY_EVENT_CONSUMED || active);
             queued.completion->done = true;
             pthread_cond_broadcast(&overlay_input_cond);
-            pthread_mutex_unlock(&overlay_input_mutex);
         }
+        pthread_mutex_unlock(&overlay_input_mutex);
+
+        TRACE("event type %u code %u state %u delivered=%u consumed=%u active=%u pending=%u\n",
+              queued.event.type, queued.event.code, queued.event.state,
+              result != OVERLAY_EVENT_UNDELIVERED, result == OVERLAY_EVENT_CONSUMED,
+              active, pending);
     }
 
 failed:
     pthread_mutex_lock(&overlay_input_mutex);
     overlay_input_running = false;
+    overlay_input_sources = 0;
     overlay_input_initialized = true;
     overlay_input_head = overlay_input_count = 0;
     overlay_focus_valid = false;
@@ -624,49 +736,76 @@ failed:
     return NULL;
 }
 
-void wineland_overlay_client_start(void *display, unsigned long window)
+int __wineland_overlay_client_start_v1(void *display, unsigned long window, unsigned int source)
 {
     Dl_info info = {0};
     pthread_t thread;
+    bool ready;
 
-    if (!display || !window) return;
+    if (!display || !window ||
+        (source != WINELAND_OVERLAY_INPUT_OPENGL && source != WINELAND_OVERLAY_INPUT_VULKAN))
+        return 0;
 
     pthread_mutex_lock(&overlay_input_mutex);
     if (overlay_input_running)
     {
         while (!overlay_input_initialized)
             pthread_cond_wait(&overlay_input_cond, &overlay_input_mutex);
+        ready = overlay_input_api != NULL;
+        if (ready) overlay_input_sources |= source;
         pthread_mutex_unlock(&overlay_input_mutex);
-        return;
+        return ready;
     }
 
     /* The detached event thread lives for the process lifetime, so retain the
      * layer containing it even if the originating Vulkan instance is freed. */
     if (!overlay_self_module &&
-        (!dladdr((void *)wineland_overlay_client_start, &info) || !info.dli_fname ||
+        (!dladdr((void *)__wineland_overlay_client_start_v1, &info) || !info.dli_fname ||
          !(overlay_self_module = dlopen(info.dli_fname,
                                        RTLD_NOW | RTLD_LOCAL | RTLD_NOLOAD))))
     {
         pthread_mutex_unlock(&overlay_input_mutex);
         TRACE("could not retain the translation layer\n");
-        return;
+        return 0;
     }
 
     overlay_display = display;
     overlay_window = window;
     overlay_input_running = true;
     overlay_input_initialized = false;
+    overlay_input_sources = source;
     if (pthread_create(&thread, NULL, overlay_input_thread, NULL))
     {
         overlay_input_running = false;
+        overlay_input_sources = 0;
         pthread_mutex_unlock(&overlay_input_mutex);
         TRACE("could not create the input thread\n");
-        return;
+        return 0;
     }
     pthread_detach(thread);
     while (overlay_input_running && !overlay_input_initialized)
         pthread_cond_wait(&overlay_input_cond, &overlay_input_mutex);
+    ready = overlay_input_api != NULL;
     pthread_mutex_unlock(&overlay_input_mutex);
+    return ready;
+}
+
+void __wineland_overlay_client_stop_v1(unsigned int source)
+{
+    pthread_mutex_lock(&overlay_input_mutex);
+    overlay_input_sources &= ~source;
+    if (!overlay_input_sources)
+    {
+        /* In-flight events from the failed renderer must not reacquire input. */
+        overlay_source_serial++;
+        overlay_input_ownership = OVERLAY_INPUT_INACTIVE;
+        overlay_authoritative_active = false;
+        overlay_state_serial++;
+    }
+    pthread_mutex_unlock(&overlay_input_mutex);
+
+    /* The GL bridge calls this from Wine's swap thread, never the native worker. */
+    sync_overlay_active();
 }
 
 __attribute__((visibility("default")))
@@ -683,7 +822,7 @@ void __wineland_overlay_client_set_active_v1(int active)
     }
 
     overlay_authoritative_active = active;
-    if (!active) overlay_input_owned = false;
+    overlay_input_ownership = active ? OVERLAY_INPUT_ACTIVE : OVERLAY_INPUT_INACTIVE;
     overlay_state_serial++;
     pthread_cond_signal(&overlay_input_cond);
     pthread_mutex_unlock(&overlay_input_mutex);

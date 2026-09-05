@@ -1701,6 +1701,9 @@ class Session:
         the matching translation layer below it in the host
         VkInstanceCreateInfo. Proton exposes the package-private translation
         manifests through the loader's active explicit-layer search path.
+
+        OpenGL can opt in to the same input proxy through an EGL-to-GLX adapter
+        preloaded after Steam's native overlay renderer.
         """
         # Avoid adding the layer to the known EAC and BattlEye runtime paths.
         for var in ("PROTON_EAC_RUNTIME", "PROTON_BATTLEYE_RUNTIME"):
@@ -1733,6 +1736,28 @@ class Session:
             self.env["DISABLE_MANGOHUD"] = "1"
 
         utilities.add_vk_explicit_layer(prepend_to_env_str, self.env, manifest_dir)
+
+        # Opt in per game: the launcher does not know which graphics API it uses.
+        if not nonzero(self.env.get("PROTON_WAYLAND_OPENGL_OVERLAY", "0")):
+            return
+
+        # EGL adapter for Steam's native GLX overlay. Keep Steam
+        # first in LD_PRELOAD: its swap hook must call through our adapter.
+        # Missing OpenGL support must not disable the Vulkan bridge above.
+        if "gameoverlayrenderer.so" not in self.env.get("LD_PRELOAD", ""):
+            log("Native OpenGL overlay disabled: Steam renderer is not preloaded")
+            self.env["PROTON_WAYLAND_OPENGL_OVERLAY"] = "0"
+            return
+        overlay_dirs = [os.path.join(g_proton.path("files/lib/wineland/opengl"), arch)
+                        for arch in ("x86_64", "i386")]
+        overlay_dirs = [path for path in overlay_dirs
+                        if os.path.exists(os.path.join(path, "libwineland-overlay-gl.so"))]
+        if not overlay_dirs:
+            log("Native OpenGL overlay disabled: adapter is unavailable")
+            self.env["PROTON_WAYLAND_OPENGL_OVERLAY"] = "0"
+            return
+        prepend_to_env_str(self.env, "LD_LIBRARY_PATH", ":".join(overlay_dirs), ":")
+        append_to_env_str(self.env, "LD_PRELOAD", "libwineland-overlay-gl.so", ":")
 
     def setup_wayland_primary_monitor(self):
         if "WAYLANDDRV_PRIMARY_MONITOR" in self.env:
