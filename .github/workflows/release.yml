@@ -51,12 +51,6 @@ jobs:
       with:
         fetch-depth: 0
         fetch-tags: true
-    - name: Title
-      id: title
-      shell: bash
-      run: |
-        git fetch origin +refs/tags/*:refs/tags/*
-        python -c "v='${{ github.ref_name }}'.split('-');print('title='+'-'.join([v[1],v[2]]))" >> "$GITHUB_OUTPUT"
     - name: Create
       id: create
       shell: bash
@@ -65,7 +59,7 @@ jobs:
         release create
         ${{ github.ref_name }}
         --latest
-        --title "Version ${{ steps.title.outputs.title }}"
+        --title "$GITHUB_REF_NAME"
         --notes-from-tag
         --verify-tag
       env:
