@@ -74,6 +74,22 @@ default by setting `PROTON_ENABLE_WAYLAND=1`, so games and supporting
 applications run through Wayland automatically.
 
 
+How is the initial monitor selected?
+------------------------------------
+
+At launch, Proton reads KDE's or GNOME's configured primary monitor, niri's
+focused monitor, or COSMIC's preferred display for X11 games. COSMIC's preference
+is reused for native Wayland games; this does not switch them to Xwayland.
+The query runs once, does not change desktop settings, and leaves Wine's default
+unchanged if the desktop is unsupported or no unambiguous answer is available.
+
+An explicit `WAYLANDDRV_PRIMARY_MONITOR` always takes precedence, for example:
+
+```sh
+WAYLANDDRV_PRIMARY_MONITOR=DP-2 %command%
+```
+
+
 How do I use OptiScaler nightlies?
 ---------------------------------
 

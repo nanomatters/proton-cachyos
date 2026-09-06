@@ -2000,6 +2000,9 @@ $(VULKAN_BINDINGS_TARGET): $(addprefix $(SRCDIR)/,vulkan.py)
 UTILITIES_TARGET := $(addprefix $(DST_BASE)/,utilities.py)
 $(UTILITIES_TARGET): $(addprefix $(SRCDIR)/,utilities.py)
 
+DESKTOP_MONITOR_TARGET := $(addprefix $(DST_BASE)/,desktop_monitor.py)
+$(DESKTOP_MONITOR_TARGET): $(addprefix $(SRCDIR)/,desktop_monitor.py)
+
 PROTON_PY_TARGET := $(addprefix $(DST_BASE)/,proton)
 $(PROTON_PY_TARGET): $(addprefix $(SRCDIR)/,proton)
 
@@ -2010,7 +2013,7 @@ USER_SETTINGS_PY_TARGET := $(addprefix $(DST_BASE)/,user_settings.sample.py)
 $(USER_SETTINGS_PY_TARGET): $(addprefix $(SRCDIR)/,user_settings.sample.py)
 
 DIST_COPY_TARGETS := $(FILELOCK_TARGET) $(PROTON_PY_TARGET) \
-                     $(VULKAN_BINDINGS_TARGET) $(UTILITIES_TARGET) \
+                     $(VULKAN_BINDINGS_TARGET) $(UTILITIES_TARGET) $(DESKTOP_MONITOR_TARGET) \
                      $(PROTON37_TRACKED_FILES_TARGET) $(USER_SETTINGS_PY_TARGET)
 
 ifeq ($(ENABLE_WOW64),1)
