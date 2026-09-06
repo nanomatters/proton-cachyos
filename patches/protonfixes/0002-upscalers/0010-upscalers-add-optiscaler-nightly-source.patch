@@ -1,0 +1,900 @@
+From: Erhan Bilgili <erhan.bilgili@gmail.com>
+Subject: [PATCH] upscalers: Support official OptiScaler nightlies.
+
+Add floating and pinned nightly selections with verified, cached downloads
+of the official package and a pinned static 7-Zip extractor. Keep the
+nightly's bundled libraries separate from managed upscaler DLLs.
+
+Stage package updates before replacing installed files, roll back failed
+replacements, and allow local validation without release metadata. Keep
+stable version selection unchanged and never substitute another pinned
+nightly. Cover bootstrap, updates and failure paths with isolated tests.
+
+---
+diff --git a/upscalers.py b/upscalers.py
+--- a/upscalers.py
++++ b/upscalers.py
+@@ -1,11 +1,14 @@
+ """Download and setup DLLs to upgrade various upscalers"""
+ 
+ import configparser
++import fcntl
+ import hashlib
++import io
+ import json
+ import lzma
+ import os
+ import tarfile
++import tempfile
+ import urllib.request
+ from functools import lru_cache
+ from urllib.error import HTTPError, URLError
+@@ -16,6 +19,7 @@
+ 
+ from .logger import log
+ from .config import config
++from . import optiscaler_nightly as nightly
+ 
+ 
+ __manifest_url = 'https://loathingkernel.github.io/proton-upscalers/manifest.json'
+@@ -194,8 +198,7 @@
+ 
+     local_versions[section] = checksums
+ 
+-    with open(tracking_file, 'w', encoding='utf-8') as file_fd:
+-        file_fd.write(json.dumps(local_versions))
++    nightly.atomic_write(tracking_file, json.dumps(local_versions).encode('utf-8'))
+ 
+ 
+ def __check_upscaler_file(
+@@ -296,58 +299,44 @@
+     *,
+     ignore_version: bool = False,
+ ) -> bool:
+-    """Check for optiscaler files and its version
+-
+-    version: the version of the optiscaler to download
+-    ignore_version: ignore version mismatch but still check if the files are present
+-    """
+-    try:
+-        path, item = __get_opti_files(version)
+-    except Exception as e:
+-        log.crit('Failed to get "optiscaler" versions from manifest')
+-        log.crit(e)
+-        return False
+-
++    """Validate installed files locally, without a network-dependent fallback."""
+     try:
+         tracked_items = __get_tracked_items(compat_dir, __opti_section)
+-        # test if new files and their attributes exist in the tracking file
+-        for dst in [os.path.join(path, f) for f in item['md5_hash']]:
+-            _ = tracked_items[dst].get('md5_hash')
++        required = ('OptiScaler.dll',) + nightly.ALIASES
++        if any(f'{nightly.ROOT}/{name}' not in tracked_items for name in required):
++            return False
++        if not (Path(prefix_dir) / nightly.ROOT / 'OptiScaler.ini').is_file():
++            return False
++        for dst, record in tracked_items.items():
++            Path(dst).relative_to(nightly.ROOT)
++            nightly.safe_name(dst)
++            target = Path(prefix_dir) / dst
++            if not target.is_file():
++                return False
++            checksum = record['md5_hash']
++            if checksum and nightly.file_hash(target, 'md5') != checksum.lower():
++                return False
++            # A pinned nightly must never silently enable a different installed tag.
++            if version.startswith('nightly-') and record['version'] != version:
++                return False
++        if not ignore_version:
++            item = (nightly.resolve(version, config.path.cache_dir / 'upscalers')
++                    if nightly.is_nightly(version) else __get_opti_files(version)[1])
++            return __opti_matches(tracked_items, item)
+     except Exception as e:
+         log.warn(e)
+         return False
+-
+-    dst_hashes = {}
+-    for dst in tracked_items:
+-        target = os.path.join(prefix_dir, dst)
+-        if not os.path.isfile(target):
+-            log.warn(f'Missing file from prefix "{dst}"')
+-            return False
+-        with open(target, 'rb') as dst_fd:
+-            dst_md5 = hashlib.md5(dst_fd.read()).hexdigest().lower()
+-        version_md5 = tracked_items[dst]['md5_hash']
+-        if version_md5 and dst_md5 != version_md5.lower():
+-            log.warn(f'MD5 checksum mismatch between version file and prefix "{dst}"')
+-            return False
+-        dst_hashes.update({dst: dst_md5})
+-
+-    if not ignore_version:
+-        for name in item['md5_hash']:
+-            dst = os.path.join(path, name)
+-            target = os.path.join(prefix_dir, dst)
+-            if not os.path.isfile(target):
+-                log.warn(f'Missing file from prefix "{dst}"')
+-                return False
+-            if tracked_items[dst]['version'] != item['version']:
+-                log.warn(f'Version mismatch between configuration and prefix "{dst}"')
+-                return False
+-            item_md5 = item['md5_hash'][name]
+-            if item_md5 and dst_hashes[dst] != item_md5.lower():
+-                log.warn(f'MD5 checksum mismatch between manifest and prefix "{dst}"')
+-                return False
+-            log.debug(f'Found matching file in prefix "{dst}"')
+-
+     return True
++
++
++def __opti_matches(tracked, item):
++    if not tracked or any(record['version'] != item['version'] for record in tracked.values()):
++        return False
++    if 'sha256' in item:
++        return all(record.get('archive_sha256') == item['sha256'] for record in tracked.values())
++    return all(tracked.get(f'{nightly.ROOT}/{name}', {}).get('md5_hash') == checksum
++               and f'{nightly.ROOT}/{name}' in tracked
++               for name, checksum in item['md5_hash'].items())
+ 
+ 
+ def __download_upscaler_files(
+@@ -479,59 +468,61 @@
+ def download_optiscaler(
+     compat_dir: str, prefix_dir: str, version: str = 'default'
+ ) -> None:
+-    """Check for optiscaler files and their versions
+-
+-    version: the version of the upscaler dll to download
+-    """
+-    if check_optiscaler(compat_dir, prefix_dir, version, ignore_version=False):
+-        return
+-    log.info('Failed to validate "optiscaler" files.')
+-
++    """Prepare a complete package before replacing any installed OptiScaler files."""
+     try:
+         tracked_items = __get_tracked_items(compat_dir, __opti_section)
+     except Exception:
+         tracked_items = {}
+-        pass
+-
+-    try:
+-        path, item = __get_opti_files(version)
+-        log.info(f'Updating OptiScaler "{os.path.basename(item["version"])}"')
+-
+-        url_path = Path(unquote(urlparse(item['download_url']).path))
++
++    try:
+         cache_dir = config.path.cache_dir.joinpath('upscalers')
+-        cache_dir.mkdir(parents=True, exist_ok=True)
+-        cached_file = cache_dir.joinpath(url_path.name)
+-        __cached_download(item, cached_file)
+-
+-        for target in tracked_items:
+-            # do not remove .ini files
+-            if target.endswith('.ini'):
+-                continue
+-            local_file = os.path.join(prefix_dir, target)
+-            if os.path.exists(local_file):
+-                os.unlink(local_file)
+-
+-        with tarfile.open(cached_file, 'r:xz') as tar_fd:
+-            names = tar_fd.getnames()
+-            for name in names:
+-                local_file = os.path.join(prefix_dir, path, name)
+-                if name.endswith('.ini') and os.path.exists(local_file):
+-                    os.rename(local_file, local_file + '.old' )
+-                tar_fd.extract(name, os.path.join(prefix_dir, path))
+-
+-        version = {}
+-        for name in item['md5_hash']:
+-            version[os.path.join(path, name)] = {
+-                'version': item['version'],
+-                'md5_hash': item['md5_hash'][name]
+-            }
+-
+-    except Exception as e:
+-        log.crit('Failed to download OptiScaler package.')
++        item = (nightly.resolve(version, cache_dir) if nightly.is_nightly(version)
++                else __get_opti_files(version)[1])
++        if (__opti_matches(tracked_items, item)
++                and check_optiscaler(compat_dir, prefix_dir, version, ignore_version=True)):
++            return
++        log.info(f'Updating OptiScaler "{item["version"]}"')
++        destination = Path(prefix_dir) / nightly.ROOT
++        destination.mkdir(parents=True, exist_ok=True)
++        with tempfile.TemporaryDirectory(prefix='.optiscaler-stage-', dir=destination.parent) as tmp:
++            stage = Path(tmp)
++            if nightly.is_nightly(version):
++                hashes = nightly.prepare(item, cache_dir, stage)
++                # Let the nightly discover managed DLSS/RR/FG without owning copies.
++                for name in ('nvngx_dlss.dll', 'nvngx_dlssd.dll', 'nvngx_dlssg.dll'):
++                    alias = 'OptiScaler/' + name
++                    if (destination / name).is_file() and alias not in hashes:
++                        (stage / 'OptiScaler').mkdir(exist_ok=True)
++                        (stage / alias).symlink_to('../' + name)
++                        hashes[alias] = None
++            else:
++                cached_file = cache_dir / Path(unquote(urlparse(item['download_url']).path)).name
++                __cached_download(item, cached_file)
++                hashes = nightly.prepare_stable(cached_file, item['md5_hash'], stage)
++            if any(name not in hashes for name in ('OptiScaler.dll', 'OptiScaler.ini') + nightly.ALIASES):
++                raise ValueError('Incomplete OptiScaler package')
++            old_names = [str(Path(name).relative_to(nightly.ROOT)) for name in tracked_items]
++            # Older stable installs extracted these package files without tracking them.
++            if tracked_items:
++                for name in ('OptiScaler.ini', 'fakenvapi.ini', 'plugins/OptiPatcher.asi'):
++                    if (destination / name).is_file() and name not in old_names:
++                        old_names.append(name)
++            # Keep the previous configuration for reference, as the stable installer did.
++            for name in tuple(hashes):
++                if name.endswith('.ini') and (destination / name).is_file():
++                    nightly.atomic_write(stage / (name + '.old'), (destination / name).read_bytes())
++                    hashes = {**hashes, name + '.old': None}
++                    if name + '.old' not in old_names:
++                        old_names.append(name + '.old')
++            records = {f'{nightly.ROOT}/{name}': {
++                'version': item['version'], 'md5_hash': checksum,
++                **({'archive_sha256': item['sha256']} if 'sha256' in item else {}),
++            } for name, checksum in hashes.items()}
++            nightly.install(stage, destination, old_names, hashes,
++                            lambda: __set_tracked_items(compat_dir, __opti_section, records))
++    except Exception as e:
++        log.crit('Failed to update OptiScaler; keeping the previous installation.')
+         log.crit(e)
+-        return
+-
+-    __set_tracked_items(compat_dir, __opti_section, version)
+ 
+ 
+ def setup_upscaler(
+@@ -552,22 +543,35 @@
+     prefix_dir: str,
+     version: str,
+ ) -> bool:
++    # Serialize setup for this prefix, not every game sharing the download cache.
++    try:
++        with open(Path(compat_dir) / '.optiscaler.lock', 'a') as lock:
++            fcntl.flock(lock, fcntl.LOCK_EX)
++            return __setup_optiscaler(env, compat_dir, prefix_dir, version)
++    except Exception as error:
++        log.crit(f'Cannot configure OptiScaler: {error}')
++        return False
++
++
++def __setup_optiscaler(env, compat_dir, prefix_dir, version):
+     log.info(f'Setting up OptiScaler version "{version}".')
+     download_optiscaler(compat_dir, prefix_dir, version)
+     enabled = check_optiscaler(compat_dir, prefix_dir, version, ignore_version=True)
++    if enabled:
++        tracked = __get_tracked_items(compat_dir, __opti_section)
++        log.info(f'Using OptiScaler "{next(iter(tracked.values()))["version"]}"')
+ 
+     if enabled and (env_config := env.get('PROTON_OPTISCALER_CONFIG', '')):
+-        path, _ = __get_opti_files(version)
+-        ini = os.path.join(prefix_dir, path, 'OptiScaler.ini')
+-        parser = configparser.ConfigParser()
++        ini = os.path.join(prefix_dir, nightly.ROOT, 'OptiScaler.ini')
++        parser = configparser.ConfigParser(interpolation=None)
+         parser.read(ini)
+ 
+         env_config_parts = env_config.split(';')
+         env_config_parts = (part for part in env_config_parts if part)
+         for part in env_config_parts:
+             try:
+-                option_path, value = part.split('=')
+-                section, option = option_path.split('.')
++                option_path, value = part.split('=', 1)
++                section, option = option_path.split('.', 1)
+             except Exception as e:
+                 log.crit(f'Malformed config "{part}"')
+                 log.debug(e)
+@@ -577,8 +581,9 @@
+             else:
+                 log.warn(f'Ignoring unknown option "{f"{section}.{option}"}"')
+ 
+-        with open(ini, 'w') as ini_fd:
++        with io.StringIO() as ini_fd:
+             parser.write(ini_fd)
++            nightly.atomic_write(ini, ini_fd.getvalue().encode('utf-8'))
+ 
+     return enabled
+ 
+diff --git a/optiscaler_nightly.py b/optiscaler_nightly.py
+new file mode 100644
+--- /dev/null
++++ b/optiscaler_nightly.py
+@@ -0,0 +1,289 @@
++"""Verified, on-demand extraction of official OptiScaler nightlies."""
++
++import configparser
++import hashlib
++import json
++import os
++import platform
++import re
++import shutil
++import subprocess
++import tarfile
++import tempfile
++import urllib.request
++from pathlib import Path, PurePosixPath
++
++from .logger import log
++
++
++ROOT = 'drive_c/windows/system32/umu'
++ALIASES = ('dxgi.dll', 'd3d12.dll', 'winmm.dll', 'dbghelp.dll')
++REPOSITORY = 'optiscaler/OptiScaler-nightly'
++SEVENZIP_VERSION = '26.03'
++SEVENZIP_BUILDS = {
++    'x86_64': ('x64', 'dc99eff5008f1ab79bd7084c68513701547a808a89502bf4133683535ab3c695'),
++    'aarch64': ('arm64', '2389ba20e4d8295e8709c20b6263b69bd1ec4972fe38a04ad7a1badbf595b996'),
++}
++# Match the stable Proton package's launcher/crash-handler exclusions.
++EXCLUDED_PROCESSES = (
++    'crashpad_handler.exe', 'crashreport.exe', 'crashreporter.exe', 'crs-handler.exe',
++    'unitycrashhandler64.exe', 'idtechlauncher.exe', 'cefviewwing.exe', 'ace-setup64.exe',
++    'ace-service64.exe', 'qtwebengineprocess.exe', 'platformprocess.exe', 'bugsplathd64.exe',
++    'bssndrpt64.exe', 'pspcsdkappmgr.exe', 'pspcsdkcore.exe', 'pspcsdkstttts.exe',
++    'pspcsdktelemetry.exe', 'pspcsdkui.exe', 'pspcsdkupdatechecker.exe',
++    'pspcsdkvoicechat.exe', 'pspcsdkwebview.exe', 'windhawk.exe', 'vscodium.exe',
++    'crash_reporter.exe', 'steamerrorreporter64.exe', 'crashreportclient.exe',
++    'edcefcrashpadprocess.exe', 'edcefrenderprocess.exe',
++    'EOSOverlayRenderer-Win64-Shipping.exe', 'EOSOverlayRenderer-Win32-Shipping.exe',
++)
++
++
++def is_nightly(version):
++    return version == 'nightly' or version.startswith('nightly-')
++
++
++def file_hash(path, algorithm='sha256'):
++    digest = hashlib.new(algorithm)
++    with Path(path).open('rb') as source:
++        for block in iter(lambda: source.read(1024 * 1024), b''):
++            digest.update(block)
++    return digest.hexdigest()
++
++
++def atomic_write(path, data, mode=0o600):
++    path = Path(path)
++    path.parent.mkdir(parents=True, exist_ok=True)
++    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as output:
++        temporary = Path(output.name)
++        try:
++            output.write(data)
++            output.flush()
++            os.fchmod(output.fileno(), mode)
++            os.replace(temporary, path)
++        finally:
++            temporary.unlink(missing_ok=True)
++
++
++def verified_download(url, path, checksum):
++    """Publish only complete downloads; a failed refresh leaves the cache intact."""
++    path = Path(path)
++    if path.is_file() and file_hash(path) == checksum:
++        return path
++    path.parent.mkdir(parents=True, exist_ok=True)
++    request = urllib.request.Request(url, headers={'User-Agent': 'Proton-OptiScaler'})
++    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as output:
++        temporary = Path(output.name)
++        try:
++            with urllib.request.urlopen(request, timeout=15) as response:
++                shutil.copyfileobj(response, output)
++            output.flush()
++            if file_hash(temporary) != checksum:
++                raise ValueError(f'SHA-256 mismatch for {url}')
++            os.replace(temporary, path)
++        finally:
++            temporary.unlink(missing_ok=True)
++    return path
++
++
++def _release_item(release, version):
++    tag = release['tag_name']
++    if (not re.fullmatch(r'nightly-\d{8}', tag) or release.get('draft')
++            or (version != 'nightly' and tag != version)):
++        raise ValueError('Nightly release does not match the requested tag')
++    assets = [asset for asset in release['assets']
++              if re.fullmatch(r'OptiScaler[^/\\]*\.7z', asset['name'])]
++    if len(assets) != 1:
++        raise ValueError('Expected one OptiScaler nightly .7z asset')
++    asset = assets[0]
++    digest = asset.get('digest', '')
++    if not re.fullmatch(r'sha256:[0-9a-f]{64}', digest):
++        raise ValueError('Nightly asset has no SHA-256 digest')
++    url = f'https://github.com/{REPOSITORY}/releases/download/{tag}/{asset["name"]}'
++    if asset['browser_download_url'] != url:
++        raise ValueError('Unexpected nightly asset URL')
++    return {'version': tag, 'download_url': url, 'sha256': digest[7:]}
++
++
++def resolve(version, cache):
++    """Resolve once per setup, including prereleases; exact tags never float."""
++    if version != 'nightly' and not re.fullmatch(r'nightly-\d{8}', version):
++        raise ValueError(f'Invalid OptiScaler nightly selection: {version}')
++    metadata = Path(cache) / 'nightly' / f'{version}.json'
++    endpoint = 'releases?per_page=100' if version == 'nightly' else f'releases/tags/{version}'
++    request = urllib.request.Request(
++        f'https://api.github.com/repos/{REPOSITORY}/{endpoint}',
++        headers={'User-Agent': 'Proton-OptiScaler', 'Accept': 'application/vnd.github+json'},
++    )
++    try:
++        with urllib.request.urlopen(request, timeout=10) as response:
++            data = json.load(response)
++        if version == 'nightly':
++            releases = [entry for entry in data if not entry.get('draft')
++                        and re.fullmatch(r'nightly-\d{8}', entry.get('tag_name', ''))]
++            data = max(releases, key=lambda entry: entry['tag_name'])
++        item = _release_item(data, version)
++    except Exception as error:
++        log.warn(f'Cannot resolve OptiScaler {version}: {error}')
++        # Cached metadata is revalidated, and may only satisfy the same selection.
++        return _release_item(json.loads(metadata.read_text(encoding='utf-8')), version)
++    atomic_write(metadata, json.dumps(data).encode('utf-8'))
++    return item
++
++
++def extractor(cache):
++    """Use the official static host binary, independent of the game's bitness."""
++    arch, checksum = SEVENZIP_BUILDS[platform.machine()]
++    directory = Path(cache) / '7zip' / SEVENZIP_VERSION / arch
++    name = f'7z{SEVENZIP_VERSION.replace(".", "")}-linux-{arch}.tar.xz'
++    archive = verified_download(
++        f'https://github.com/ip7z/7zip/releases/download/{SEVENZIP_VERSION}/{name}',
++        directory / name, checksum,
++    )
++    # Read exact regular members, retaining the upstream notices alongside 7zzs.
++    # Compare with the verified archive before ever executing a cached binary.
++    with tarfile.open(archive, 'r:xz') as source:
++        for name in ('7zzs', 'License.txt', 'readme.txt', 'MANUAL/general/license.htm'):
++            member = source.getmember(name)
++            if not member.isfile():
++                raise ValueError(f'Unexpected 7-Zip member: {name}')
++            data = source.extractfile(member).read()
++            target = directory / name
++            if not target.is_file() or target.read_bytes() != data:
++                atomic_write(target, data, 0o700 if name == '7zzs' else 0o600)
++    return directory / '7zzs'
++
++
++def safe_name(name):
++    path = PurePosixPath(name)
++    if (not name or path.is_absolute() or '..' in path.parts
++            or '\\' in name or ':' in name or str(path) != name):
++        raise ValueError(f'Unsafe OptiScaler archive path: {name!r}')
++    return path
++
++
++def prepare(item, cache, stage):
++    """Extract the nightly without running its setup scripts or flattening DLLs."""
++    stage = Path(stage)
++    archive = verified_download(item['download_url'],
++                                Path(cache) / 'nightly' / (item['sha256'] + '.7z'),
++                                item['sha256'])
++    command = [str(extractor(cache))]
++    result = subprocess.run(command + ['l', '-slt', '-ba', str(archive)],
++                            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
++                            stdin=subprocess.DEVNULL, text=True, timeout=120)
++    for entry in result.stdout.strip().split('\n\n'):
++        fields = dict(line.split(' = ', 1) for line in entry.splitlines() if ' = ' in line)
++        safe_name(fields['Path'])
++        if ('Symbolic Link' in fields or 'Hard Link' in fields
++                or re.search(r'(^| )l[rwx-]{9}', fields.get('Attributes', ''))):
++            raise ValueError('Links are not allowed in nightly archives')
++    subprocess.run(command + ['x', '-y', '-o' + str(stage), str(archive)],
++                   check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
++                   stdin=subprocess.DEVNULL, timeout=120)
++    # Only install runtime files and notices. The rest stays in the temporary tree.
++    files = []
++    for path in stage.rglob('*'):
++        if path.is_symlink():
++            raise ValueError('Links are not allowed in nightly archives')
++        if not path.is_file():
++            continue
++        name = path.relative_to(stage).as_posix()
++        if (name in ('OptiScaler.dll', 'OptiScaler.ini', 'fakenvapi.dll', 'fakenvapi.ini',
++                     'dlssg_to_fsr3_amd_is_better.dll')
++                or name.startswith('Licenses/')
++                or (name.startswith('OptiScaler/') and path.suffix.lower() == '.dll')):
++            files.append(name)
++    for alias in ALIASES:
++        (stage / alias).symlink_to('OptiScaler.dll')
++        files.append(alias)
++    ini = stage / 'OptiScaler.ini'
++    parser = configparser.ConfigParser(interpolation=None)
++    parser.optionxform = str
++    parser.read(ini, encoding='utf-8-sig')
++    library_path = r'c:\windows\system32\umu'
++    parser['Libraries']['OptiDllPath'] = library_path + r'\OptiScaler'
++    parser['Libraries']['NvngxDlssPath'] = library_path
++    parser['Libraries']['NvngxFeaturePath'] = library_path
++    if (stage / 'fakenvapi.dll').is_file():
++        parser['Libraries']['NvapiPath'] = library_path + r'\fakenvapi.dll'
++    parser['Hotfix']['CheckForUpdate'] = 'false'
++    parser['ProcessFilter']['ProcessExclusionList'] = '|'.join(EXCLUDED_PROCESSES)
++    if parser.has_option('FSR', 'Fsr4Update'):
++        parser['FSR']['Fsr4Update'] = 'true'
++    with ini.open('w', encoding='utf-8') as output:
++        parser.write(output)
++    if not (stage / 'OptiScaler.dll').is_file():
++        raise ValueError('Nightly archive has no OptiScaler.dll')
++    return {name: None if name.lower().endswith('.ini') else file_hash(stage / name, 'md5')
++            for name in files}
++
++
++def prepare_stable(archive, hashes, stage):
++    """Keep stable's unhashed INIs/plugins too, validating local DLL aliases."""
++    stage = Path(stage)
++    files = {}
++    with tarfile.open(archive, 'r:xz') as source:
++        for member in source:
++            name = member.name
++            safe_name(name)
++            target = stage / name
++            if member.isdir():
++                target.mkdir(parents=True, exist_ok=True)
++                continue
++            target.parent.mkdir(parents=True, exist_ok=True)
++            if member.isfile():
++                with source.extractfile(member) as data, target.open('wb') as output:
++                    shutil.copyfileobj(data, output)
++            elif (member.issym() and name in ALIASES and member.linkname == 'OptiScaler.dll'):
++                target.symlink_to(member.linkname)
++            else:
++                raise ValueError(f'Unexpected stable archive member: {name}')
++            files[name] = hashes.get(name)
++    for name, checksum in hashes.items():
++        if checksum and file_hash(stage / name, 'md5') != checksum.lower():
++            raise ValueError(f'MD5 mismatch for {name}')
++    if any(name not in files for name in hashes):
++        raise ValueError('Stable archive is missing manifest entries')
++    return files
++
++
++def install(stage, destination, old_names, new_names, commit):
++    """Replace owned files with rollback on failure, including metadata failure."""
++    stage, destination = Path(stage), Path(destination)
++    names = sorted(set(old_names) | set(new_names))
++    for name in names:
++        safe_name(name)
++        # Do not follow a directory symlink out of the package's installation root.
++        parent = destination / name
++        while parent != destination:
++            parent = parent.parent
++            if parent.is_symlink():
++                raise ValueError(f'Symlink in installation path: {parent}')
++        target = destination / name
++        if target.is_dir() and not target.is_symlink():
++            raise ValueError(f'Directory at package file path: {target}')
++        if name in new_names and name not in old_names and os.path.lexists(target):
++            raise ValueError(f'Refusing to overwrite an untracked file: {target}')
++    moved, installed = [], []
++    with tempfile.TemporaryDirectory(prefix='.optiscaler-backup-', dir=destination.parent) as tmp:
++        backup = Path(tmp)
++        try:
++            for name in names:
++                target = destination / name
++                if os.path.lexists(target):
++                    saved = backup / name
++                    saved.parent.mkdir(parents=True, exist_ok=True)
++                    os.replace(target, saved)
++                    moved.append(name)
++            for name in new_names:
++                target = destination / name
++                target.parent.mkdir(parents=True, exist_ok=True)
++                os.replace(stage / name, target)
++                installed.append(name)
++            commit()
++        except Exception:
++            for name in reversed(installed):
++                (destination / name).unlink()
++            for name in reversed(moved):
++                os.replace(backup / name, destination / name)
++            raise
+diff --git a/tests/test_optiscaler.py b/tests/test_optiscaler.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_optiscaler.py
+@@ -0,0 +1,300 @@
++"""Run directly with Python; uses temporary prefixes and no network or Wine."""
++
++import hashlib
++import importlib
++import io
++import json
++import os
++import sys
++import tarfile
++import tempfile
++import types
++import unittest
++from pathlib import Path
++from unittest import mock
++
++
++# Load just the downloader, without protonfixes' launch-time package initializer.
++package = types.ModuleType('_optiscaler_test')
++package.__path__ = [str(Path(__file__).resolve().parents[1])]
++sys.modules[package.__name__] = package
++logger = types.ModuleType(package.__name__ + '.logger')
++logger.log = mock.Mock()
++sys.modules[logger.__name__] = logger
++configuration = types.ModuleType(package.__name__ + '.config')
++configuration.config = types.SimpleNamespace(path=types.SimpleNamespace(cache_dir=None))
++sys.modules[configuration.__name__] = configuration
++nightly = importlib.import_module(package.__name__ + '.optiscaler_nightly')
++upscalers = importlib.import_module(package.__name__ + '.upscalers')
++
++INI = b'[Libraries]\nOptiDllPath=auto\n[Hotfix]\nCheckForUpdate=auto\n[ProcessFilter]\nProcessExclusionList=auto\n'
++
++
++def release(tag='nightly-20260906'):
++    name = 'OptiScaler_test.7z'
++    return {'tag_name': tag, 'prerelease': True, 'assets': [{
++        'name': name, 'digest': 'sha256:' + 'a' * 64,
++        'browser_download_url': f'https://github.com/{nightly.REPOSITORY}/releases/download/{tag}/{name}',
++    }]}
++
++
++class OptiscalerTests(unittest.TestCase):
++    def setUp(self):
++        temporary = tempfile.TemporaryDirectory()
++        self.addCleanup(temporary.cleanup)
++        self.root = Path(temporary.name)
++        self.cache = self.root / 'cache'
++        self.compat = self.root / 'compat'
++        self.prefix = self.compat / 'pfx'
++        self.destination = self.prefix / nightly.ROOT
++        self.destination.mkdir(parents=True)
++        configuration.config.path.cache_dir = self.cache
++        self.version = 'nightly-20260906'
++        self.item = nightly._release_item(release(), self.version)
++
++    def package(self, item, cache, stage):
++        files = {'OptiScaler.dll': b'new DLL', 'OptiScaler.ini': INI,
++                 'OptiScaler/libxess.dll': b'private XeSS'}
++        for name, data in files.items():
++            target = stage / name
++            target.parent.mkdir(parents=True, exist_ok=True)
++            target.write_bytes(data)
++        for name in nightly.ALIASES:
++            (stage / name).symlink_to('OptiScaler.dll')
++            files[name] = files['OptiScaler.dll']
++        return {name: None if name.endswith('.ini') else hashlib.md5(data).hexdigest()
++                for name, data in files.items()}
++
++    def setup(self, version='nightly', env=None):
++        return upscalers.setup_optiscaler(env or {}, self.compat, self.prefix, version)
++
++    def installed(self):
++        with mock.patch.object(nightly, 'resolve', return_value=self.item), \
++                mock.patch.object(nightly, 'prepare', side_effect=self.package):
++            self.assertTrue(self.setup())
++
++    def snapshot(self):
++        return {str(path.relative_to(self.compat)): (os.readlink(path) if path.is_symlink()
++                else path.read_bytes()) for path in self.compat.rglob('*') if path.is_file()}
++
++    def test_install_preserves_separately_managed_dlls(self):
++        (self.destination / 'libxess.dll').write_bytes(b'managed XeSS')
++        (self.destination / 'nvngx_dlssd.dll').write_bytes(b'managed DLSS RR')
++        (self.compat / 'upscaler_files').write_text(json.dumps({'xess_files': {'keep': 1}}))
++        self.installed()
++        self.assertEqual((self.destination / 'libxess.dll').read_bytes(), b'managed XeSS')
++        self.assertEqual((self.destination / 'OptiScaler/libxess.dll').read_bytes(), b'private XeSS')
++        self.assertEqual(os.readlink(self.destination / 'OptiScaler/nvngx_dlssd.dll'), '../nvngx_dlssd.dll')
++        self.assertEqual(json.loads((self.compat / 'upscaler_files').read_text())['xess_files'], {'keep': 1})
++        for alias in nightly.ALIASES:
++            self.assertEqual(os.readlink(self.destination / alias), 'OptiScaler.dll')
++
++    def test_current_install_resolves_once_without_extractor(self):
++        self.installed()
++        with mock.patch.object(nightly, 'resolve', return_value=self.item) as resolve, \
++                mock.patch.object(nightly, 'prepare') as prepare:
++            self.assertTrue(self.setup())
++        resolve.assert_called_once()
++        prepare.assert_not_called()
++
++    def test_offline_fallback_and_config_need_no_manifest(self):
++        self.installed()
++        with mock.patch.object(nightly, 'resolve', side_effect=OSError('offline')), \
++                mock.patch.object(upscalers, '__get_opti_files', side_effect=AssertionError):
++            self.assertTrue(self.setup(env={'PROTON_OPTISCALER_CONFIG': 'Hotfix.CheckForUpdate=false'}))
++            self.assertTrue(self.setup(self.version))
++            self.assertFalse(self.setup('nightly-20260905'))
++        self.assertIn('checkforupdate = false', (self.destination / 'OptiScaler.ini').read_text())
++
++    def test_empty_tracking_and_missing_ini_are_invalid(self):
++        (self.compat / 'upscaler_files').write_text('{"opti_files": {}}')
++        self.assertFalse(upscalers.check_optiscaler(self.compat, self.prefix, ignore_version=True))
++        self.installed()
++        (self.destination / 'OptiScaler.ini').unlink()
++        self.assertFalse(upscalers.check_optiscaler(self.compat, self.prefix, ignore_version=True))
++
++    def test_failed_extraction_retains_old_install(self):
++        self.installed()
++        before = self.snapshot()
++        with mock.patch.object(nightly, 'resolve', return_value={**self.item, 'sha256': 'b' * 64}), \
++                mock.patch.object(nightly, 'prepare', side_effect=RuntimeError('bad archive')):
++            self.assertTrue(self.setup())
++        self.assertEqual(before, self.snapshot())
++
++    def test_failed_metadata_write_rolls_back_all_files(self):
++        self.installed()
++        before = self.snapshot()
++        with mock.patch.object(nightly, 'resolve', return_value={**self.item, 'sha256': 'b' * 64}), \
++                mock.patch.object(nightly, 'prepare', side_effect=self.package), \
++                mock.patch.object(upscalers, '__set_tracked_items', side_effect=OSError('disk full')):
++            self.assertTrue(self.setup())
++        self.assertEqual(before, self.snapshot())
++
++    def test_failed_file_replace_rolls_back(self):
++        self.installed()
++        before = self.snapshot()
++        replace = os.replace
++
++        def fail(source, target):
++            if '.optiscaler-stage-' in str(source) and Path(target).name == 'winmm.dll':
++                raise OSError('injected rename failure')
++            return replace(source, target)
++
++        with mock.patch.object(nightly, 'resolve', return_value={**self.item, 'sha256': 'b' * 64}), \
++                mock.patch.object(nightly, 'prepare', side_effect=self.package), \
++                mock.patch.object(os, 'replace', side_effect=fail):
++            self.assertTrue(self.setup())
++        self.assertEqual(before, self.snapshot())
++
++    def stable_archive(self):
++        archive = self.root / 'stable.tar.xz'
++        files = {'OptiScaler.dll': b'stable DLL', 'OptiScaler.ini': INI,
++                 'fakenvapi.ini': b'[Settings]\n', 'plugins/OptiPatcher.asi': b'plugin'}
++        with tarfile.open(archive, 'w:xz') as output:
++            for name, data in files.items():
++                member = tarfile.TarInfo(name)
++                member.size = len(data)
++                output.addfile(member, io.BytesIO(data))
++            for alias in nightly.ALIASES:
++                member = tarfile.TarInfo(alias)
++                member.type, member.linkname = tarfile.SYMTYPE, 'OptiScaler.dll'
++                output.addfile(member)
++        checksum = hashlib.md5(files['OptiScaler.dll']).hexdigest().upper()
++        return archive, {'version': '0.9.4', 'download_url': archive.as_uri(),
++                         'md5_hash': {name: checksum for name in ('OptiScaler.dll',) + nightly.ALIASES}}
++
++    def test_stable_and_channel_transitions(self):
++        archive, item = self.stable_archive()
++
++        def download(_, target):
++            target.parent.mkdir(parents=True, exist_ok=True)
++            target.write_bytes(archive.read_bytes())
++
++        with mock.patch.object(upscalers, '__get_opti_files', return_value=(nightly.ROOT, item)), \
++                mock.patch.object(upscalers, '__cached_download', side_effect=download), \
++                mock.patch.object(nightly, 'extractor', side_effect=AssertionError):
++            self.assertTrue(self.setup('default'))
++            self.assertTrue((self.destination / 'plugins/OptiPatcher.asi').is_file())
++            self.installed()
++            self.assertFalse((self.destination / 'plugins/OptiPatcher.asi').exists())
++            self.assertTrue(self.setup('default'))
++            self.assertEqual((self.destination / 'OptiScaler.dll').read_bytes(), b'stable DLL')
++            self.assertFalse((self.destination / 'OptiScaler/libxess.dll').exists())
++
++    def test_legacy_stable_tracking_allows_offline_fallback(self):
++        archive, item = self.stable_archive()
++        nightly.prepare_stable(archive, item['md5_hash'], self.destination)
++        records = {f'{nightly.ROOT}/{name}': {'md5_hash': checksum, 'version': item['version']}
++                   for name, checksum in item['md5_hash'].items()}
++        (self.compat / 'upscaler_files').write_text(json.dumps({'opti_files': records}))
++        with mock.patch.object(upscalers, '__get_opti_files', side_effect=OSError('offline')):
++            self.assertTrue(self.setup('default'))
++        self.installed()
++
++    def test_archive_traversal_and_untracked_files_are_rejected(self):
++        for name in ('../escape', '/absolute', 'dir/../../escape', r'..\escape', 'C:/escape'):
++            with self.assertRaises(ValueError):
++                nightly.safe_name(name)
++        stage = self.root / 'stage'
++        stage.mkdir()
++        (stage / 'file.dll').write_bytes(b'new')
++        (self.destination / 'file.dll').write_bytes(b'user file')
++        with self.assertRaises(ValueError):
++            nightly.install(stage, self.destination, [], ['file.dll'], lambda: None)
++        self.assertEqual((self.destination / 'file.dll').read_bytes(), b'user file')
++
++    def test_release_resolution_accepts_prereleases_and_exact_tags(self):
++        with mock.patch.object(nightly.urllib.request, 'urlopen',
++                               return_value=io.BytesIO(json.dumps([release()]).encode())) as request:
++            self.assertEqual(nightly.resolve('nightly', self.cache)['version'], self.version)
++        self.assertIn('per_page=', request.call_args.args[0].full_url)
++        with mock.patch.object(nightly.urllib.request, 'urlopen', side_effect=OSError('offline')):
++            self.assertEqual(nightly.resolve('nightly', self.cache)['version'], self.version)
++            with self.assertRaises(FileNotFoundError):
++                nightly.resolve('nightly-19000101', self.cache)
++        with self.assertRaises(ValueError):
++            nightly.resolve('nightly-../../escape', self.cache)
++
++    def test_unverified_or_wrong_repository_release_is_rejected(self):
++        for field, value in (('digest', None), ('browser_download_url', 'https://example.com/evil.7z')):
++            data = release()
++            data['assets'][0][field] = value
++            with self.assertRaises((ValueError, TypeError)):
++                nightly._release_item(data, 'nightly')
++        with self.assertRaises(ValueError):
++            nightly._release_item(release(), 'nightly-20260905')
++
++    def test_download_verifies_before_replacing_cache(self):
++        target = self.root / 'cached.7z'
++        target.write_bytes(b'previous')
++        checksum = hashlib.sha256(b'correct').hexdigest()
++        with mock.patch.object(nightly.urllib.request, 'urlopen', return_value=io.BytesIO(b'incorrect')):
++            with self.assertRaises(ValueError):
++                nightly.verified_download('https://example.com/archive', target, checksum)
++        self.assertEqual(target.read_bytes(), b'previous')
++        with mock.patch.object(nightly.urllib.request, 'urlopen', return_value=io.BytesIO(b'correct')):
++            nightly.verified_download('https://example.com/archive', target, checksum)
++        with mock.patch.object(nightly.urllib.request, 'urlopen', side_effect=AssertionError):
++            self.assertEqual(nightly.verified_download('https://example.com/archive', target, checksum), target)
++
++    def test_nightly_layout_defaults_and_script_filter(self):
++        stage = self.root / 'stage'
++        stage.mkdir()
++
++        def run(command, **kwargs):
++            if command[1] == 'l':
++                return types.SimpleNamespace(stdout='Path = OptiScaler.dll\nAttributes = A\n')
++            self.package(None, None, stage)
++            # prepare() itself creates the aliases after extraction.
++            for name in nightly.ALIASES:
++                (stage / name).unlink()
++            (stage / 'setup_linux.sh').write_text('never execute this')
++            return types.SimpleNamespace(stdout=b'')
++
++        with mock.patch.object(nightly, 'verified_download', return_value=self.root / 'archive'), \
++                mock.patch.object(nightly, 'extractor', return_value=self.root / '7zzs'), \
++                mock.patch.object(nightly.subprocess, 'run', side_effect=run):
++            files = nightly.prepare(self.item, self.cache, stage)
++        self.assertIn('OptiScaler/libxess.dll', files)
++        self.assertNotIn('setup_linux.sh', files)
++        parser = nightly.configparser.ConfigParser()
++        parser.read(stage / 'OptiScaler.ini')
++        self.assertEqual(parser['Libraries']['OptiDllPath'], r'c:\windows\system32\umu\OptiScaler')
++        self.assertEqual(parser['Libraries']['NvngxDlssPath'], r'c:\windows\system32\umu')
++        self.assertEqual(parser['Hotfix']['CheckForUpdate'], 'false')
++
++    def test_nightly_link_rejected_before_extraction(self):
++        listing = types.SimpleNamespace(stdout='Path = OptiScaler\nSymbolic Link = /tmp\n')
++        with mock.patch.object(nightly, 'verified_download', return_value=self.root / 'archive'), \
++                mock.patch.object(nightly, 'extractor', return_value=self.root / '7zzs'), \
++                mock.patch.object(nightly.subprocess, 'run', return_value=listing) as run:
++            with self.assertRaises(ValueError):
++                nightly.prepare(self.item, self.cache, self.root / 'stage')
++        run.assert_called_once()
++
++    def test_extractor_bootstrap_and_cache_repair(self):
++        archive = io.BytesIO()
++        files = {'7zzs': b'static executable', '7zz': b'unused dynamic executable',
++                 'License.txt': b'license', 'readme.txt': b'readme',
++                 'MANUAL/general/license.htm': b'license details'}
++        with tarfile.open(fileobj=archive, mode='w:xz') as output:
++            for name, data in files.items():
++                member = tarfile.TarInfo(name)
++                member.size = len(data)
++                output.addfile(member, io.BytesIO(data))
++        data = archive.getvalue()
++        checksum = hashlib.sha256(data).hexdigest()
++        with mock.patch.object(nightly.platform, 'machine', return_value='x86_64'), \
++                mock.patch.dict(nightly.SEVENZIP_BUILDS, {'x86_64': ('x64', checksum)}), \
++                mock.patch.object(nightly.urllib.request, 'urlopen', return_value=io.BytesIO(data)) as request:
++            tool = nightly.extractor(self.cache)
++            self.assertTrue(tool.stat().st_mode & 0o100)
++            self.assertEqual(tool.read_bytes(), files['7zzs'])
++            self.assertEqual((tool.parent / 'License.txt').read_bytes(), b'license')
++            tool.write_bytes(b'corrupted')
++            self.assertEqual(nightly.extractor(self.cache).read_bytes(), files['7zzs'])
++        request.assert_called_once()
++
++
++if __name__ == '__main__':
++    unittest.main()

@@ -74,6 +74,38 @@ default by setting `PROTON_ENABLE_WAYLAND=1`, so games and supporting
 applications run through Wayland automatically.
 
 
+How do I use OptiScaler nightlies?
+---------------------------------
+
+The existing stable selection remains `PROTON_USE_OPTISCALER=1`. To use the
+latest official nightly, set this Steam launch option:
+
+```sh
+PROTON_USE_OPTISCALER=nightly %command%
+```
+
+To pin a published nightly instead:
+
+```sh
+PROTON_USE_OPTISCALER=nightly-20260906 %command%
+```
+
+Nightlies come directly from [OptiScaler's nightly releases](https://github.com/optiscaler/OptiScaler-nightly/releases).
+The downloader checks release metadata once per launch and verifies the archive's
+SHA-256. When extraction is needed, it downloads a pinned, checksum-verified
+[official Linux 7-Zip](https://github.com/ip7z/7zip/releases/tag/26.03) into the
+protonfixes cache, retaining its license notices. The static host executable
+supports x86-64 and ARM64; no system 7-Zip or additional Python packages are needed.
+It only runs during installation or updates, not while the game is running.
+
+Nightly-bundled DLLs stay separate from Proton's managed DLSS/XeSS/FFX files.
+Updates are staged before replacement, with rollback on installation errors.
+An unsuccessful update can use a valid existing installation; an explicit nightly
+tag only permits that exact tag. Offline validation needs no GitHub connection.
+As with stable updates, previous INIs are saved as `.ini.old`, and
+`PROTON_OPTISCALER_CONFIG` is reapplied. Switching back to `1` selects stable again.
+
+
 What does it not promise?
 -------------------------
 
