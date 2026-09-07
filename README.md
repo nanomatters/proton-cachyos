@@ -90,6 +90,27 @@ WAYLANDDRV_PRIMARY_MONITOR=DP-2 %command%
 ```
 
 
+How do I resize a game's cursor?
+--------------------------------
+
+For custom bitmap cursors supplied through Wine, set a size multiplier in the
+Steam launch options, for example:
+
+```sh
+PROTON_WAYLAND_CURSOR_SCALE=2 %command%
+```
+
+This doubles the cursor size without changing game resolution or mouse
+sensitivity. Fractional values from `0.25` to `8` are supported; the default is
+`1`, and invalid values leave the default unchanged. The setting is read when
+Wine initializes the Wayland pointer and requires cursor viewport scaling
+support from the compositor.
+
+Compositor-provided cursor shapes, including the Steam overlay cursor, keep
+their desktop-controlled size. Cursors drawn into the game image cannot be
+resized by this option.
+
+
 How do I use OptiScaler nightlies?
 ---------------------------------
 
