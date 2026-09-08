@@ -3,10 +3,10 @@
 What is Proton Wineland?
 -------------------------
 
-Proton Wineland is an effort to solve Linux gaming problems through complete,
-high-quality solutions rather than accumulating game-specific hacks and
-workarounds. Its goal is to address issues that are genuinely solvable when the
-necessary time and care are invested.
+Proton Wineland aims to solve Linux gaming problems through complete solutions
+rather than accumulating hacks and workarounds for individual games. Its goal
+is to address issues that are genuinely solvable when the necessary time and
+care are invested.
 
 The project began with the lack of robust Wayland support. Since then, it has
 grown beyond launchers to address broader compatibility, rendering, input, and
@@ -21,18 +21,18 @@ What does Proton Wineland offer over other Proton versions?
 -----------------------------------------------------------
 
 Proton Wineland is not intended to change how every game runs. Its advantages
-are most noticeable when a game or launcher runs into Wayland-specific problems
+are most noticeable when a game or launcher runs into Wayland problems
 that other Proton versions may work around only partially.
 
 It can provide:
 
-- More reliable Windows game launchers, including Chromium and CEF-based
+- More reliable Windows game launchers, including Chromium and CEF
   applications such as Battle.net, Ubisoft Connect, Rockstar Games Launcher,
   and the native Windows Steam client.
 
-- Better fullscreen, borderless-window, minimise, maximise, restore, alt-tab,
-  and monitor-switching behaviour, particularly in multi-monitor and
-  mixed-scaling setups.
+- Better fullscreen and borderless window behaviour, including minimising,
+  maximising, restoring, Alt+Tab, and switching monitors, particularly with
+  multiple monitors and mixed scaling.
 
 - Correct rendering for overlays, popups, login windows, and other content
   created by a separate Windows process from the visible game window.
@@ -44,11 +44,11 @@ It can provide:
   or moved between monitors.
 
 - Better integration with Wayland desktops, including Windows tray icons,
-  application menus, and compatible HDR and colour-management paths.
+  application menus, and compatible HDR and colour management paths.
 
 These improvements work automatically where they are applicable. They are
 intended to solve underlying compatibility problems rather than require
-per-game environment variables or launch-option workarounds.
+environment variables or launch options tailored to each game.
 
 These benefits depend on the game, GPU driver, compositor, and desktop setup.
 A game that already works well with another Proton version may not show a
@@ -106,41 +106,67 @@ sensitivity. Fractional values from `0.25` to `8` are supported; the default is
 Wine initializes the Wayland pointer and requires cursor viewport scaling
 support from the compositor.
 
-Compositor-provided cursor shapes, including the Steam overlay cursor, keep
-their desktop-controlled size. Cursors drawn into the game image cannot be
+Cursor shapes provided by the compositor, including the Steam overlay cursor,
+keep their desktop size. Cursors drawn into the game image cannot be
 resized by this option.
+
+
+How do I enable the HUD with PROTON_HUD?
+---------------------------------------
+
+Set a preset in Steam's launch options:
+
+```sh
+PROTON_HUD=3 %command%
+```
+
+| Level | Information |
+| --- | --- |
+| `1` | FPS, 1% and 0.1% lows, and window system. |
+| `2` | Adds GPU and CPU load, power, temperature, and Proton and GPU driver versions. |
+| `3` | Adds GPU and CPU clocks and VRAM usage. |
+| `4` | Adds presentation latency timings above level 3. |
+| `5` | All HUD elements except `systeminfo`, arranged on the left. |
+
+Levels 1 to 4 use centred horizontal rows, with window system information at
+the bottom. HDR and direct scanout (DSO) status appear when available.
+
+This extends the existing DXVK HUD, which VKD3D Proton also uses for Direct3D
+12 games. Wine samples CPU and GPU telemetry once per second in background
+threads when requested. Available readings depend on hardware, drivers, and
+permissions.
+
+Append DXVK HUD options after the preset to customise it, for example:
+
+```sh
+PROTON_HUD=3,scale=1.25,-gpu.temp %command%
+```
+
+An explicit `DXVK_HUD` takes precedence. See the [DXVK HUD options](dxvk/README.md#hud)
+for individual metrics, layout, and appearance settings.
 
 
 How do I use OptiScaler nightlies?
 ---------------------------------
 
-The existing stable selection remains `PROTON_USE_OPTISCALER=1`. To use the
-latest official nightly, set this Steam launch option:
+Use `PROTON_USE_OPTISCALER=1` for stable releases. For the latest official
+nightly, set this Steam launch option:
 
 ```sh
 PROTON_USE_OPTISCALER=nightly %command%
 ```
 
-To pin a published nightly instead:
+To pin a specific nightly:
 
 ```sh
 PROTON_USE_OPTISCALER=nightly-20260906 %command%
 ```
 
-Nightlies come directly from [OptiScaler's nightly releases](https://github.com/optiscaler/OptiScaler-nightly/releases).
-The downloader checks release metadata once per launch and verifies the archive's
-SHA-256. When extraction is needed, it downloads a pinned, checksum-verified
-[official Linux 7-Zip](https://github.com/ip7z/7zip/releases/tag/26.03) into the
-protonfixes cache, retaining its license notices. The static host executable
-supports x86-64 and ARM64; no system 7-Zip or additional Python packages are needed.
-It only runs during installation or updates, not while the game is running.
-
-Nightly-bundled DLLs stay separate from Proton's managed DLSS/XeSS/FFX files.
-Updates are staged before replacement, with rollback on installation errors.
-An unsuccessful update can use a valid existing installation; an explicit nightly
-tag only permits that exact tag. Offline validation needs no GitHub connection.
-As with stable updates, previous INIs are saved as `.ini.old`, and
-`PROTON_OPTISCALER_CONFIG` is reapplied. Switching back to `1` selects stable again.
+Nightlies are downloaded from
+[OptiScaler's official releases](https://github.com/optiscaler/OptiScaler-nightly/releases)
+and verified before installation. Updates are checked at launch, not during
+gameplay. Previous INI files are saved as `.ini.old`, and
+`PROTON_OPTISCALER_CONFIG` is reapplied. Switch back to `1` to use stable again.
 
 
 What does it not promise?
@@ -157,14 +183,12 @@ Is it experimental?
 
 Yes, but "experimental" does not mean inherently unstable. Proton Wineland
 takes a different approach from the usual pattern of relying on environment
-variables, command-line parameters, and game-specific Wine workarounds to make
-individual titles run.
+variables, command line parameters, and Wine workarounds for individual titles.
 
 Where possible, it aims to solve the underlying problem in a durable way. This
-does not mean the project is bug-free, including in newly added areas, but its
-experimental nature does not come with an intended trade-off of reduced
-stability. In some situations, it may even be more stable than other Proton
-versions.
+does not mean the project has no bugs, including in newly added areas, but being
+experimental does not mean deliberately sacrificing stability. In some
+situations, it may even be more stable than other Proton versions.
 
 
 How is artificial intelligence used?
@@ -174,7 +198,7 @@ AI tools are a regular part of Proton Wineland's development process. I use
 them to analyse logs, investigate problems, review changes, and help fix or
 generate code when I consider that appropriate.
 
-Before delivery, every commit goes through an AI-assisted review. I examine
+Before delivery, every commit goes through a review assisted by AI. I examine
 the findings and decide whether the suggested changes are technically sound
 and suitable for the project. When they are, I may let the AI modify the code
 and then review the result again.
@@ -197,8 +221,8 @@ Early on, Proton Wineland was regularly rebased onto the latest CachyOS
 branches. As its Wayland work expanded, rebasing the Wine component became
 increasingly difficult. Repeatedly resolving the growing number of conflicts
 began to destabilise the codebase, so Proton Wineland now maintains its Wine
-work independently and selectively cherry-picks compatible upstream and
-bleeding-edge changes.
+work independently and selectively picks compatible upstream and bleeding edge
+changes.
 
 An early possibility was contributing the Wineland changes directly to CachyOS.
 As the project grew in scope and followed its own technical direction,
@@ -216,21 +240,15 @@ Can Proton Wineland be merged into other larger Proton projects?
 
 I cannot speak for the plans of other projects. Proton Wineland is open source,
 and anyone is free to use or adapt parts of it. For example, GE-Proton has
-already adopted its Status Notifier Item support.
-
-Adopting the entire project would be more difficult because the changes span a
-broad part of Wine's Wayland, rendering, and compatibility stack. The
-cross-process rendering framework is already relatively mature, but taking it
-wholesale could make it harder for another project to integrate future upstream
-Wine changes.
-
+already adopted its Status Notifier Item (SNI) support and a substantial part
+of its Wayland cross-process rendering work.
 
 What about upstream Wine and Valve's Wine work?
 ------------------------------------------------
 
 A full merge into upstream Wine or Valve's Wine work is currently unlikely. My
 understanding is that Wine is pursuing its own approach to Wayland
-cross-process rendering, which differs from Proton Wineland's design. I have
+rendering across processes, which differs from Proton Wineland's design. I have
 not investigated the details of that work myself, so I do not want to speculate
 beyond that.
 

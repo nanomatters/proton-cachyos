@@ -1971,9 +1971,12 @@ class Session:
             ),
             "5": "full,-systeminfo",
         }
-        hud_level = self.env.get("PROTON_HUD")
+        hud_config = self.env.get("PROTON_HUD", "")
+        hud_level, separator, hud_options = hud_config.partition(",")
         if "DXVK_HUD" not in self.env and hud_level in hud_presets:
             self.env["DXVK_HUD"] = hud_presets[hud_level]
+            if separator and hud_options:
+                self.env["DXVK_HUD"] += "," + hud_options
 
         # Enable wine-nvml by default on Nvidia (experimental)
         if utilities.is_driver_loaded({'nvidia'}):
