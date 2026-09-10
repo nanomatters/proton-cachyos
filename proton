@@ -1955,18 +1955,18 @@ class Session:
         hud_presets = {
             "1": "fps,fps_lows,bottom,winsys,horizontal,center",
             "2": (
-                "fps,fps_lows,gpu.load,gpu.power,gpu.temp,newline,"
+                "fps,fps_lows,gpu.load,gpu.power,gpu.temp,gpu.jtemp,newline,"
                 "cpu.load,cpu.power,cpu.temp,bottom,winsys,proton,gpu.driver,"
                 "horizontal,center"
             ),
             "3": (
-                "fps,fps_lows,gpu.load,gpu.power,gpu.temp,gpu.clock,gpu.vram,newline,"
+                "fps,fps_lows,gpu.load,gpu.power,gpu.temp,gpu.jtemp,gpu.clock,gpu.vram,newline,"
                 "cpu.load,cpu.power,cpu.temp,cpu.clock,bottom,winsys,proton,"
                 "gpu.driver,horizontal,center"
             ),
             "4": (
                 "present_latency,newline,fps,fps_lows,gpu.load,gpu.power,"
-                "gpu.temp,gpu.clock,gpu.vram,newline,cpu.load,cpu.power,cpu.temp,"
+                "gpu.temp,gpu.jtemp,gpu.clock,gpu.vram,newline,cpu.load,cpu.power,cpu.temp,"
                 "cpu.clock,bottom,winsys,proton,gpu.driver,horizontal,center"
             ),
             "5": "full,-systeminfo",
