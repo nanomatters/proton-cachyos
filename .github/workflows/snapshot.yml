@@ -10,8 +10,6 @@ concurrency:
 jobs:
   version:
     name: Version
-    # Keep all snapshot jobs disabled, including manual runs.
-    if: ${{ false }}
     runs-on: ubuntu-slim
     outputs:
       full_desc: ${{ steps.version.outputs.full_desc }}
@@ -32,78 +30,18 @@ jobs:
   build:
     name: Build
     needs: version
-    strategy:
-      matrix:
-        include:
-          - name: proton-${{ needs.version.outputs.full_desc }}-x86_64
-            cflags: -O3 -march=nocona -mtune=core-avx2
-            rustflags: -Copt-level=3 -Ctarget-cpu=nocona
-
-          - name: proton-${{ needs.version.outputs.full_desc }}-x86_64_v3
-            cflags: -O3 -march=x86-64-v3 -mtune=core-avx2
-            rustflags: -Copt-level=3 -Ctarget-cpu=nocona
-
-          - name: proton-${{ needs.version.outputs.full_desc }}-x86_64_wow64
-            cflags: -O3 -march=nocona -mtune=core-avx2
-            rustflags: -Copt-level=3 -Ctarget-cpu=nocona
-            configure: >-
-              --enable-wow64
-
-          - name: proton-${{ needs.version.outputs.full_desc }}-x86_64-llvm
-            cflags: -O3 -march=nocona -mtune=core-avx2
-            rustflags: -Copt-level=3 -Ctarget-cpu=nocona
-            configure: >-
-              --without-nvidia-libs
-              --without-tts
-              --proton-sdk-image=registry.gitlab.steamos.cloud/proton/steamrt4/sdk/x86_64-llvm:4.0.20260331.220802-2
-
-          - name: proton-${{ needs.version.outputs.full_desc }}-x86_64_v3-llvm
-            cflags: -O3 -march=x86-64-v3 -mtune=core-avx2
-            rustflags: -Copt-level=3 -Ctarget-cpu=nocona
-            configure: >-
-              --without-nvidia-libs
-              --without-tts
-              --proton-sdk-image=registry.gitlab.steamos.cloud/proton/steamrt4/sdk/x86_64-llvm:4.0.20260331.220802-2
-
-          - name: proton-${{ needs.version.outputs.full_desc }}-x86_64-llvm-wow64
-            cflags: -O3 -march=nocona -mtune=core-avx2
-            rustflags: -Copt-level=3 -Ctarget-cpu=nocona
-            configure: >-
-              --enable-wow64
-              --without-nvidia-libs
-              --without-tts
-              --proton-sdk-image=registry.gitlab.steamos.cloud/proton/steamrt4/sdk/x86_64-llvm:4.0.20260331.220802-2
-
-          - name: proton-${{ needs.version.outputs.full_desc }}-arm64
-            configure: >-
-              --without-nvidia-libs
-              --target-arch=arm64
-            runner: 'ubuntu-24.04-arm'
     uses: ./.github/workflows/_job_build.yml
     with:
-      name: ${{ matrix.name }}
-      cflags: ${{ matrix.cflags }}
-      rustflags: ${{ matrix.rustflags }}
-      configure: --enable-ccache ${{ matrix.configure }}
-      runner: ${{ matrix.runner != '' && matrix.runner || 'ubuntu-24.04' }}
+      name: proton-${{ needs.version.outputs.full_desc }}-x86_64
+      cflags: -O3 -march=nocona -mtune=core-avx2
+      rustflags: -Copt-level=3 -Ctarget-cpu=nocona
+      configure: --enable-ccache
       continue: true
 
   test:
     name: Test
     needs: [version, build]
-    strategy:
-      matrix:
-        include:
-          - name: proton-${{ needs.version.outputs.full_desc }}-x86_64
-          - name: proton-${{ needs.version.outputs.full_desc }}-x86_64_v3
-          - name: proton-${{ needs.version.outputs.full_desc }}-x86_64_wow64
-          - name: proton-${{ needs.version.outputs.full_desc }}-x86_64-llvm
-          - name: proton-${{ needs.version.outputs.full_desc }}-x86_64_v3-llvm
-          - name: proton-${{ needs.version.outputs.full_desc }}-x86_64-llvm-wow64
-          - name: proton-${{ needs.version.outputs.full_desc }}-arm64
-            runner: 'ubuntu-24.04-arm'
     uses: ./.github/workflows/_job_test.yml
     with:
-      name: ${{ matrix.name }}
-      runner: ${{ matrix.runner != '' && matrix.runner || 'ubuntu-24.04' }}
+      name: proton-${{ needs.version.outputs.full_desc }}-x86_64
       continue: true
